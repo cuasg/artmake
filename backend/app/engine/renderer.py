@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import colorsys
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,11 +79,16 @@ class FrameRenderer:
         self._fade_pending_clear: set[int] = set()  # pixels to clear when fade-out finishes
         # Set True when living_drawing finishes erase and starts the next draw cycle (album advance hook).
         self._living_cycle_completed: bool = False
+        # Per-image line color: inherit global settings vs fixed/random RGB for this drawing_id load.
+        self._drawing_use_global_line_color: bool = True
+        self._drawing_line_rgb: tuple[int, int, int] | None = None
 
     def reset(self) -> None:
         self.state.reset()
         self.drawing = DrawingState()
         self._drawing_cached_id = None
+        self._drawing_use_global_line_color = True
+        self._drawing_line_rgb = None
         self._canvas_rgb = None
         self._fade_level = None
         self._fade_in_active = []
@@ -207,11 +214,14 @@ class FrameRenderer:
         now = time.time()
         dt = max(0.0, now - (self.drawing.mode_started_at_s or now))
 
-        # Color
-        r, g, b = _hex_to_rgb(settings.art.line_color)
-        r = _scale_u8(r, settings.art.brightness)
-        g = _scale_u8(g, settings.art.brightness)
-        b = _scale_u8(b, settings.art.brightness)
+        # Color (per-image override from catalog, else simulator global)
+        if self._drawing_use_global_line_color or self._drawing_line_rgb is None:
+            lr, lg, lb = _hex_to_rgb(settings.art.line_color)
+        else:
+            lr, lg, lb = self._drawing_line_rgb
+        r = _scale_u8(lr, settings.art.brightness)
+        g = _scale_u8(lg, settings.art.brightness)
+        b = _scale_u8(lb, settings.art.brightness)
 
         if self.drawing.mode == "draw":
             step = int(self.drawing.draw_pps * (1.0 / max(1.0, settings.stream.fps)))
@@ -479,6 +489,15 @@ class FrameRenderer:
             if len(p2) >= 2:
                 out.append(p2)
         return out
+
+
+def _random_bright_rgb() -> tuple[int, int, int]:
+    """Saturated, high-value HSV → RGB for visibility on LED matrices."""
+    h = random.random()
+    s = random.uniform(0.82, 1.0)
+    v = random.uniform(0.92, 1.0)
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return int(r * 255), int(g * 255), int(b * 255)
 
 
 def _hex_to_rgb(s: str) -> tuple[int, int, int]:

@@ -39,6 +39,12 @@ class CropFocusBody(BaseModel):
     crop_focus: str
 
 
+class ImageLineArtColorPatch(BaseModel):
+    """null / explicit JSON null clears to simulator default line color."""
+
+    line_art_display_color: str | None = None
+
+
 class ToolpathKeyBody(BaseModel):
     w: int
     h: int
@@ -238,6 +244,7 @@ def build_routes(
                     "crop_focus": getattr(i, "crop_focus", "center"),
                     "parent_id": getattr(i, "parent_id", None),
                     "kind": getattr(i, "kind", "original"),
+                    "line_art_display_color": getattr(i, "line_art_display_color", None),
                     "size_bytes": i.size_bytes,
                     "has_ai_toolpath": image_library.has_toolpath(i.id),
                     "toolpaths": image_library.list_toolpaths(i.id),
@@ -392,6 +399,19 @@ def build_routes(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "id": image_id, "crop_focus": v}
+
+    @router.patch("/images/{image_id}/line-art-display-color")
+    async def images_patch_line_art_color(image_id: str, body: ImageLineArtColorPatch) -> dict:
+        if "line_art_display_color" not in body.model_fields_set:
+            raise HTTPException(status_code=422, detail="Include line_art_display_color (null = simulator default)")
+        try:
+            v = image_library.set_line_art_display_color(image_id, body.line_art_display_color)
+        except ValueError as exc:
+            msg = str(exc)
+            code = 404 if "not found" in msg.lower() else 400
+            raise HTTPException(status_code=code, detail=msg) from exc
+        renderer.invalidate_living_drawing(image_id)
+        return {"ok": True, "id": image_id, "line_art_display_color": v}
 
     @router.get("/images/{image_id}")
     async def images_get(image_id: str):

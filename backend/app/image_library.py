@@ -19,6 +19,8 @@ class ImageEntry:
     crop_focus: str
     parent_id: str | None = None
     kind: str = "original"
+    # None / missing = use simulator global line color; "random_bright" or "#RRGGBB"
+    line_art_display_color: str | None = None
 
 
 _LABEL_MAX = 120
@@ -105,15 +107,74 @@ class ImageLibrary:
                 return k.strip()
         return "original"
 
+    def _line_art_display_color_for_id(self, image_id: str) -> str | None:
+        catalog = self._load_catalog()
+        entry = catalog.get(image_id)
+        if not isinstance(entry, dict):
+            return None
+        v = entry.get("line_art_display_color")
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return None
+
+    def line_art_display_color_spec(self, image_id: str) -> str | None:
+        """Stored override or None → use global simulator line color."""
+        return self._line_art_display_color_for_id(image_id)
+
     def set_label(self, image_id: str, label: str) -> str:
         e = self._entry_from_disk(image_id)
         if not e:
             raise ValueError("Image not found")
         catalog = self._load_catalog()
         clean = _sanitize_label(label, e.label)
-        catalog[str(image_id)] = {"label": clean}
+        cur = catalog.get(str(image_id))
+        if not isinstance(cur, dict):
+            cur = {}
+        cur = {**cur, "label": clean}
+        catalog[str(image_id)] = cur
         self._save_catalog(catalog)
         return clean
+
+    def set_line_art_display_color(self, image_id: str, value: str | None) -> str | None:
+        """
+        Persist line color for living-drawing when this image is selected.
+        None clears → use global simulator line color.
+        Allowed non-empty: \"random_bright\" or CSS hex #RGB / #RRGGBB.
+        """
+        e = self._entry_from_disk(image_id)
+        if not e:
+            raise ValueError("Image not found")
+        catalog = self._load_catalog()
+        cur = catalog.get(str(image_id))
+        if not isinstance(cur, dict):
+            cur = {}
+
+        if value is None or not str(value).strip():
+            cur.pop("line_art_display_color", None)
+            catalog[str(image_id)] = cur
+            self._save_catalog(catalog)
+            return None
+
+        raw = str(value).strip()
+        low = raw.lower()
+        if low == "random_bright":
+            cur["line_art_display_color"] = "random_bright"
+            catalog[str(image_id)] = cur
+            self._save_catalog(catalog)
+            return "random_bright"
+
+        hx = raw.lstrip("#")
+        if len(hx) == 3:
+            hx = "".join(c * 2 for c in hx)
+        if len(hx) != 6 or any(c not in "0123456789abcdefABCDEF" for c in hx):
+            raise ValueError("line_art_display_color must be random_bright or #RGB / #RRGGBB")
+        canon = f"#{hx.lower()}"
+        cur["line_art_display_color"] = canon
+        catalog[str(image_id)] = cur
+        self._save_catalog(catalog)
+        return canon
 
     def set_crop_focus(self, image_id: str, crop_focus: str) -> str:
         e = self._entry_from_disk(image_id)
@@ -148,6 +209,7 @@ class ImageLibrary:
         crop_focus = self._crop_focus_for_id(img_id)
         parent_id = self._parent_for_id(img_id)
         kind = self._kind_for_id(img_id)
+        lac = self._line_art_display_color_for_id(img_id)
         return ImageEntry(
             id=img_id,
             filename=path.name,
@@ -157,6 +219,7 @@ class ImageLibrary:
             crop_focus=crop_focus,
             parent_id=parent_id,
             kind=kind,
+            line_art_display_color=lac,
         )
 
     def save_upload(

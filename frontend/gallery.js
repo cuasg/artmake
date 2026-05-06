@@ -137,7 +137,30 @@ async function generateAiLineartImage(imageId) {
   return await apiPost(`/api/images/${encodeURIComponent(imageId)}/ai-stylize`, {});
 }
 
-function drawToolpathPreview(canvas, toolpath) {
+function hexToRgba(hex, alpha = 1) {
+  try {
+    let t = String(hex || "").trim();
+    if (t.startsWith("#")) t = t.slice(1);
+    if (t.length === 3) t = t.split("").map((c) => c + c).join("");
+    if (t.length !== 6) return `rgba(184, 215, 255, ${alpha})`;
+    const r = parseInt(t.slice(0, 2), 16);
+    const g = parseInt(t.slice(2, 4), 16);
+    const b = parseInt(t.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  } catch (_) {
+    return `rgba(184, 215, 255, ${alpha})`;
+  }
+}
+
+/** Catalog line_art_display_color: null = simulator default; random_bright = preview tint */
+function resolveLineArtStrokeCss(spec, globalLineHex) {
+  if (spec == null || String(spec).trim() === "") return hexToRgba(globalLineHex || "#b8d7ff", 0.95);
+  if (String(spec).toLowerCase().trim() === "random_bright") return "rgba(72, 255, 168, 0.95)";
+  const h = String(spec).startsWith("#") ? String(spec) : `#${spec}`;
+  return hexToRgba(h, 0.95);
+}
+
+function drawToolpathPreview(canvas, toolpath, strokeCss) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -157,7 +180,7 @@ function drawToolpathPreview(canvas, toolpath) {
   const ox = (w - mw * scale) / 2;
   const oy = (h - mh * scale) / 2;
 
-  ctx.strokeStyle = "rgba(160, 210, 255, 0.95)";
+  ctx.strokeStyle = strokeCss || "rgba(160, 210, 255, 0.95)";
   ctx.lineWidth = Math.max(1, scale * 0.12);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -198,16 +221,39 @@ async function copyCanvasToClipboard(canvas) {
   await navigator.clipboard.write([new window.ClipboardItem({ "image/png": blob })]);
 }
 
+async function copyImageUrlToClipboard(url) {
+  if (!navigator.clipboard || !window.ClipboardItem) {
+    throw new Error("Clipboard image copy not supported in this browser.");
+  }
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`Could not load image (${res.status}).`);
+  const blob = await res.blob();
+  const type = blob.type && blob.type.startsWith("image/") ? blob.type : "image/png";
+  await navigator.clipboard.write([new window.ClipboardItem({ [type]: blob })]);
+}
+
 function wireModal() {
   const modal = $("previewModal");
   const btnClose = $("btnClosePreview");
   const btnCopy = $("btnCopyPreview");
   const hint = $("previewHint");
   const canvas = $("previewCanvas");
+  const raster = $("previewRaster");
+
+  /** @type {"toolpath"|"raster"} */
+  let previewMode = "toolpath";
+  let rasterCopyUrl = "";
 
   const close = () => {
     if (!modal) return;
     modal.hidden = true;
+    previewMode = "toolpath";
+    rasterCopyUrl = "";
+    if (raster) {
+      raster.hidden = true;
+      raster.removeAttribute("src");
+    }
+    if (canvas) canvas.hidden = false;
   };
   btnClose?.addEventListener("click", close);
   modal?.addEventListener("click", (e) => {
@@ -218,12 +264,15 @@ function wireModal() {
   });
 
   btnCopy?.addEventListener("click", async () => {
-    if (!canvas) return;
     try {
       btnCopy.disabled = true;
       if (hint) hint.textContent = "Copying…";
-      await copyCanvasToClipboard(canvas);
-      if (hint) hint.textContent = "Copied PNG to clipboard.";
+      if (previewMode === "raster" && rasterCopyUrl) {
+        await copyImageUrlToClipboard(rasterCopyUrl);
+      } else if (canvas) {
+        await copyCanvasToClipboard(canvas);
+      }
+      if (hint) hint.textContent = "Copied image to clipboard.";
     } catch (err) {
       if (hint) hint.textContent = String(err && err.message ? err.message : err);
     } finally {
@@ -232,16 +281,35 @@ function wireModal() {
   });
 
   return {
-    open: (title, toolpath) => {
+    openToolpath: (title, toolpath, strokeCss) => {
       if (!modal || !canvas) return;
+      previewMode = "toolpath";
+      rasterCopyUrl = "";
+      if (raster) {
+        raster.hidden = true;
+        raster.removeAttribute("src");
+      }
+      canvas.hidden = false;
       const t = $("previewTitle");
       if (t) t.textContent = title || "Preview";
-      if (hint) hint.textContent = "Tip: Copy puts a PNG in your clipboard.";
+      if (hint) hint.textContent = "Tip: Copy saves the preview image to your clipboard.";
       modal.hidden = false;
-      // render at higher pixel res for nicer copy
       canvas.width = 900;
       canvas.height = 900;
-      drawToolpathPreview(canvas, toolpath);
+      drawToolpathPreview(canvas, toolpath, strokeCss);
+    },
+    openRaster: (title, imageUrl) => {
+      if (!modal || !canvas || !raster) return;
+      previewMode = "raster";
+      rasterCopyUrl = imageUrl || "";
+      canvas.hidden = true;
+      raster.hidden = false;
+      raster.alt = title || "Preview";
+      raster.src = imageUrl;
+      const t = $("previewTitle");
+      if (t) t.textContent = title || "Preview";
+      if (hint) hint.textContent = "Tip: Copy saves this image to your clipboard.";
+      modal.hidden = false;
     },
   };
 }
@@ -261,6 +329,15 @@ async function main() {
   if (!grid) return;
 
   const modal = wireModal();
+
+  let globalLineColor = "#b8d7ff";
+  try {
+    const st = await apiGet("/api/settings");
+    const lc = st && st.art && st.art.line_color;
+    if (typeof lc === "string" && lc.trim()) globalLineColor = lc.trim();
+  } catch (_) {
+    /* keep default */
+  }
 
   // Upload workflow (staged save + progress)
   const fileEl = $("fileUpload");
@@ -506,6 +583,12 @@ async function main() {
           im.className = "variantCanvas";
           im.src = `/api/images/${encodeURIComponent(kid.id)}`;
           im.alt = kid.label || kid.id;
+          im.style.cursor = "pointer";
+          im.title = "Click to enlarge";
+          im.addEventListener("click", () => {
+            const name = kid.label || "AI line art";
+            modal?.openRaster(`${name} · AI line-art image`, im.src);
+          });
           row.appendChild(im);
 
           const info = document.createElement("div");
@@ -606,6 +689,95 @@ async function main() {
       card.appendChild(cropRow);
 
       const variants = Array.isArray(vectorSource.toolpaths) ? vectorSource.toolpaths : [];
+
+      // Line art color (simulator default vs fixed hex vs random bright — stored per image id)
+      const colorRow = document.createElement("div");
+      colorRow.className = "btnRow";
+      colorRow.style.marginTop = "10px";
+      colorRow.style.alignItems = "center";
+      colorRow.style.flexWrap = "wrap";
+      colorRow.style.gap = "8px";
+
+      const colorLab = document.createElement("div");
+      colorLab.className = "muted";
+      colorLab.textContent = "Line color:";
+      colorRow.appendChild(colorLab);
+
+      const selMode = document.createElement("select");
+      selMode.className = "btn";
+      selMode.style.padding = "8px 10px";
+      const optInherit = document.createElement("option");
+      optInherit.value = "inherit";
+      optInherit.textContent = "Simulator default";
+      const optRand = document.createElement("option");
+      optRand.value = "random";
+      optRand.textContent = "Random (bright)";
+      const optCustom = document.createElement("option");
+      optCustom.value = "custom";
+      optCustom.textContent = "Custom…";
+      selMode.appendChild(optInherit);
+      selMode.appendChild(optRand);
+      selMode.appendChild(optCustom);
+
+      const inpCol = document.createElement("input");
+      inpCol.type = "color";
+      inpCol.className = "btn";
+      inpCol.style.padding = "2px";
+      inpCol.style.height = "34px";
+      inpCol.style.cursor = "pointer";
+
+      const lacRaw = vectorSource.line_art_display_color;
+      const lacLower = lacRaw != null ? String(lacRaw).toLowerCase().trim() : "";
+      if (!lacRaw || lacRaw === "") {
+        selMode.value = "inherit";
+        inpCol.value = /^#[0-9a-fA-F]{6}$/.test(globalLineColor) ? globalLineColor : "#b8d7ff";
+      } else if (lacLower === "random_bright") {
+        selMode.value = "random";
+        inpCol.value = "#48ffa8";
+      } else {
+        selMode.value = "custom";
+        const hx = String(lacRaw).startsWith("#") ? String(lacRaw) : `#${lacRaw}`;
+        inpCol.value = hx.length === 7 ? hx : "#b8d7ff";
+      }
+      inpCol.disabled = selMode.value !== "custom";
+      selMode.addEventListener("change", () => {
+        inpCol.disabled = selMode.value !== "custom";
+      });
+
+      colorRow.appendChild(selMode);
+      colorRow.appendChild(inpCol);
+
+      const btnSaveColor = document.createElement("button");
+      btnSaveColor.className = "btn primary";
+      btnSaveColor.type = "button";
+      btnSaveColor.textContent = "Save color";
+      const colorStatus = document.createElement("div");
+      colorStatus.className = "muted";
+      colorStatus.style.flex = "1";
+      colorStatus.style.minWidth = "120px";
+
+      btnSaveColor.addEventListener("click", async () => {
+        btnSaveColor.disabled = true;
+        colorStatus.textContent = "";
+        let payload = {};
+        if (selMode.value === "inherit") payload = { line_art_display_color: null };
+        else if (selMode.value === "random") payload = { line_art_display_color: "random_bright" };
+        else payload = { line_art_display_color: inpCol.value };
+
+        try {
+          await apiPatch(`/api/images/${encodeURIComponent(vectorSource.id)}/line-art-display-color`, payload);
+          vectorSource.line_art_display_color = payload.line_art_display_color;
+          colorStatus.textContent = "Saved.";
+          void renderSelected();
+        } catch (e) {
+          colorStatus.textContent = String(e && e.message ? e.message : e);
+        } finally {
+          btnSaveColor.disabled = false;
+        }
+      });
+      colorRow.appendChild(btnSaveColor);
+      colorRow.appendChild(colorStatus);
+      card.appendChild(colorRow);
 
       // Generate controls (bulk presets)
       const genRow = document.createElement("div");
@@ -728,6 +900,8 @@ async function main() {
       picker.appendChild(info);
       card.appendChild(picker);
 
+      const strokeCss = () => resolveLineArtStrokeCss(vectorSource.line_art_display_color, globalLineColor);
+
       const renderSelected = async () => {
         const v = String(sel.value || "");
         const [wS, hS] = v.split("x");
@@ -764,12 +938,12 @@ async function main() {
 
         try {
           const tp = await apiGet(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${w}x${h}/vectorized`);
-          drawToolpathPreview(cv, tp);
+          drawToolpathPreview(cv, tp, strokeCss());
           cv.style.cursor = "pointer";
           cv.title = "Click to open large preview (copyable)";
           cv.onclick = () => {
             const name = vectorSource.label || vectorSource.id;
-            modal?.open(`${name} · ${w}×${h} · vectorized`, tp);
+            modal?.openToolpath(`${name} · ${w}×${h} · vectorized`, tp, strokeCss());
           };
         } catch (_) {
           // leave blank
