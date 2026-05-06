@@ -5,10 +5,11 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-MatrixPreset = Literal["8x8", "16x16", "32x32", "64x64", "64x96", "64x128", "128x64", "128x128"]
+MatrixPreset = str  # keep permissive for backward-compatible config loads
 PatternName = Literal["waves", "pulse", "fractal_julia", "living_drawing"]
 LedShape = Literal["circle", "square"]
-OutputMode = Literal["simulator"]
+OutputMode = Literal["simulator", "raspberry_pi"]
+PhotoPlaybackMode = Literal["selected", "album"]
 
 
 class MatrixSettings(BaseModel):
@@ -20,7 +21,13 @@ class MatrixSettings(BaseModel):
     def _apply_preset(self) -> "MatrixSettings":
         if not self.preset:
             return self
-        w, h = self.preset.split("x", 1)
+        p = str(self.preset).strip().lower()
+        allowed = {"32x32", "64x64", "64x96"}
+        if p not in allowed:
+            # Ignore legacy/unsupported presets instead of failing to load.
+            self.preset = None
+            return self
+        w, h = p.split("x", 1)
         self.width = int(w)
         self.height = int(h)
         return self
@@ -52,7 +59,28 @@ class SimulatorSettings(BaseModel):
 
 
 class OutputSettings(BaseModel):
+    """
+    `simulator`: frames only go to the browser WebSocket (default for desktop testing).
+
+    `raspberry_pi`: same frames also pushed to a WS281x LED strip / matrix (see Pi docs).
+    """
+
     mode: OutputMode = "simulator"
+    # living_drawing only: `selected` keeps the Library pick; `album` cycles every full draw cycle.
+    photo_playback: PhotoPlaybackMode = "selected"
+
+    # --- WS281x / NeoPixel (SK6812 compatible) — wiring is row-major: idx = y * width + x
+    pi_gpio_pin: int = Field(default=18, ge=2, le=40, description="BCM GPIO number for DATA line")
+    pi_led_freq_hz: int = Field(default=800_000, ge=400_000, le=1_200_000)
+    pi_led_dma: int = Field(default=10, ge=0, le=14)
+    pi_led_channel: int = Field(default=0, ge=0, le=1)
+    pi_invert_signal: bool = False
+    # Strip global brightness (hardware) 0..1; RGB values are still scaled by art brightness upstream.
+    pi_strip_brightness: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Extra gain after render (useful if panels look dim). 1.0 = no change.
+    pi_rgb_gain: float = Field(default=1.0, ge=0.0, le=2.0)
+    # Registered name in rpi_ws281x (e.g. WS2812_STRIP, WS2811_STRIP_GRB)
+    pi_strip_type: str = Field(default="WS2812_STRIP")
 
 
 class OpenAIIntegration(BaseModel):

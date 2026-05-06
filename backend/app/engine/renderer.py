@@ -75,6 +75,8 @@ class FrameRenderer:
         self._fade_in_active: List[int] = []  # pixel indices ramping up
         self._fade_out_active: List[int] = []  # pixel indices ramping down
         self._fade_pending_clear: set[int] = set()  # pixels to clear when fade-out finishes
+        # Set True when living_drawing finishes erase and starts the next draw cycle (album advance hook).
+        self._living_cycle_completed: bool = False
 
     def reset(self) -> None:
         self.state.reset()
@@ -85,6 +87,14 @@ class FrameRenderer:
         self._fade_in_active = []
         self._fade_out_active = []
         self._fade_pending_clear = set()
+        self._living_cycle_completed = False
+
+    def take_living_cycle_completed(self) -> bool:
+        """Consume one-shot signal: living drawing completed a full draw→hold→erase cycle."""
+        if self._living_cycle_completed:
+            self._living_cycle_completed = False
+            return True
+        return False
 
     def invalidate_living_drawing(self, image_id: str | None = None) -> None:
         """
@@ -266,6 +276,7 @@ class FrameRenderer:
             self.drawing.flat_idx = start_idx
             if self.drawing.flat_idx <= 0:
                 # loop: redraw same image for now
+                self._living_cycle_completed = True
                 self.drawing.mode = "draw"
                 self.drawing.mode_started_at_s = now
                 self.drawing.stroke_idx = 0

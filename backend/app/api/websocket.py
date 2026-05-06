@@ -5,12 +5,22 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.displays.raspberry_pi_ws281x import RaspberryPiWs281xDriver
 from app.engine.renderer import FrameRenderer
+from app.image_library import ImageLibrary
+from app.output.album import album_candidates, next_album_id
 from app.perf_service import PerfService
 from app.settings_service import SettingsService
 
+_pi_leds = RaspberryPiWs281xDriver()
 
-def build_websocket(settings_service: SettingsService, perf_service: PerfService, renderer: FrameRenderer) -> APIRouter:
+
+def build_websocket(
+    settings_service: SettingsService,
+    perf_service: PerfService,
+    renderer: FrameRenderer,
+    image_library: ImageLibrary,
+) -> APIRouter:
     router = APIRouter()
 
     @router.websocket("/ws")
@@ -82,6 +92,22 @@ def build_websocket(settings_service: SettingsService, perf_service: PerfService
                 start = time.perf_counter()
                 # Render to packed RGB bytes off the event loop (fast to stream).
                 w, h, rgb = await asyncio.to_thread(lambda: renderer.render_rgb_bytes(settings))
+                # Push the same frame to WS281x hardware when configured (Raspberry Pi).
+                if settings.output.mode == "raspberry_pi":
+                    await asyncio.to_thread(_pi_leds.push_rgb_frame, settings, w, h, rgb)
+
+                # Album playlist: advance Library drawing after each full living_drawing cycle.
+                if (
+                    settings.output.photo_playback == "album"
+                    and settings.art.pattern == "living_drawing"
+                    and renderer.take_living_cycle_completed()
+                ):
+                    ids = album_candidates(image_library, int(w), int(h))
+                    nxt = next_album_id(ids, settings.art.drawing_id)
+                    if nxt and nxt != settings.art.drawing_id:
+                        settings_service.update({"art": {"drawing_id": nxt}})
+                        settings = settings_service.get()
+
                 now = time.time()
 
                 # Binary frame format:

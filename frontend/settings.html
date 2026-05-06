@@ -82,16 +82,63 @@
             <label class="field" style="margin-top: 10px">
               <span class="fieldLabel">Matrix preset</span>
               <select id="selMatrixPreset">
-                <option value="8x8">8 × 8</option>
-                <option value="16x16">16 × 16</option>
                 <option value="32x32">32 × 32</option>
                 <option value="64x64">64 × 64</option>
                 <option value="64x96">64 × 96</option>
-                <option value="64x128">64 × 128</option>
-                <option value="128x64">128 × 64</option>
-                <option value="128x128">128 × 128</option>
               </select>
             </label>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Raspberry Pi &amp; playlist</div>
+            <div class="muted" style="margin-top: 6px">
+              Use <strong>Simulator</strong> while testing on a PC. On the Pi, pick <strong>Raspberry Pi</strong> to mirror the
+              same frames to a WS281x data line. “Album” cycles all images that have a vectorized toolpath for the current
+              matrix size, after each full draw → hold → erase.
+            </div>
+            <div class="fieldGrid2" style="margin-top: 10px">
+              <label class="field">
+                <span class="fieldLabel">Frame output</span>
+                <select id="selOutputMode">
+                  <option value="simulator">Simulator (browser only)</option>
+                  <option value="raspberry_pi">Raspberry Pi (browser + GPIO strip)</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Living drawing playlist</span>
+                <select id="selPhotoPlayback">
+                  <option value="selected">Selected image only</option>
+                  <option value="album">Album — cycle all with vectorized paths</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">GPIO data (BCM)</span>
+                <input id="numPiGpioPin" type="number" min="2" max="40" step="1" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Strip type (rpi_ws281x)</span>
+                <select id="selPiStripType">
+                  <option value="WS2812_STRIP">WS2812</option>
+                  <option value="WS2811_STRIP_GRB">WS2811 GRB</option>
+                  <option value="WS2811_STRIP_RGB">WS2811 RGB</option>
+                  <option value="SK6812_STRIP">SK6812</option>
+                </select>
+              </label>
+              <label class="field" style="grid-column: 1 / -1">
+                <span class="fieldLabel">Strip brightness (hardware)</span>
+                <div class="rangeRow">
+                  <input id="rngPiStripBrightness" type="range" min="0" max="1" step="0.01" />
+                  <span id="txtPiStripBrightness" class="mono">—</span>
+                </div>
+              </label>
+              <label class="field" style="grid-column: 1 / -1">
+                <span class="fieldLabel">RGB gain</span>
+                <div class="rangeRow">
+                  <input id="rngPiRgbGain" type="range" min="0" max="2" step="0.05" />
+                  <span id="txtPiRgbGain" class="mono">—</span>
+                </div>
+              </label>
+            </div>
           </div>
 
           <div class="settingsGroup" style="margin-top: 12px">

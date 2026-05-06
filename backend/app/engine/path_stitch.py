@@ -8,7 +8,7 @@ from app.engine.line_draw import Point, bresenham, expand_path
 def dedupe_consecutive(points: List[Point]) -> List[Point]:
     if not points:
         return []
-    out: List[PixelPoint] = [points[0]]
+    out: List[Point] = [points[0]]
     for p in points[1:]:
         if p != out[-1]:
             out.append(p)
@@ -92,5 +92,7 @@ def normalize_ai_strokes(
     for s in strokes:
         pts = normalize_ai_toolpath(s, w, h, max_len=max_len_each)
         if len(pts) >= 2:
+            out.append(pts)
+        elif len(pts) == 1:
             out.append(pts)
     return out

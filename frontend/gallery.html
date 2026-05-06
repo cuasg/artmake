@@ -21,6 +21,53 @@
       <main class="main" style="grid-template-columns: 1fr; padding-top: 12px">
         <section class="canvasPanel">
           <div class="settingsGroup" style="max-width: 1100px; width: 100%; margin: 0 auto;">
+            <div class="groupTitle">Upload</div>
+            <div class="muted" style="margin-top:6px">Pick a file, optionally name it, then save. Variants generate in the background.</div>
+
+            <div class="fieldGrid2" style="margin-top:10px">
+              <label class="field" style="grid-column: 1 / -1">
+                <span class="fieldLabel">Optional name</span>
+                <input id="inpUploadLabel" type="text" maxlength="120" placeholder="e.g. Portrait line art" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Crop focus (for square versions)</span>
+                <select id="selCropFocus">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">File</span>
+                <input id="fileUpload" type="file" accept="image/*" />
+              </label>
+            </div>
+
+            <div class="btnRow" style="align-items:center; margin-top:10px">
+              <button id="btnUploadSave" class="btn primary" type="button" disabled>Save upload</button>
+              <button id="btnUploadClear" class="btn" type="button" disabled>Clear</button>
+              <div id="txtUploadPicked" class="muted" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></div>
+            </div>
+
+            <div class="variantRow" style="margin-top:10px">
+              <img id="imgUploadPreview" class="variantCanvas" alt="Preview" />
+              <div class="muted" style="align-self:center">Preview</div>
+            </div>
+
+            <div id="uploadProgressWrap" class="progressWrap" hidden>
+              <div class="progressTop">
+                <div id="txtUploadProgress" class="muted">Uploading…</div>
+                <div id="txtUploadProgressPct" class="muted">0%</div>
+              </div>
+              <div class="progressTrack">
+                <div id="uploadProgressBar" class="progressBar" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settingsGroup" style="max-width: 1100px; width: 100%; margin: 10px auto 0;">
             <div class="groupTitle">Gallery</div>
             <div id="galleryStatus" class="muted">Loading…</div>
           </div>

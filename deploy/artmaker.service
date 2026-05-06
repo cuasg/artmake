@@ -1,0 +1,34 @@
+# systemd unit for artmaker (FastAPI + frontend on port 8000).
+#
+# Before enabling:
+#   1. Clone/update the repo and create backend/.venv with requirements-pi.txt installed.
+#   2. Replace every /home/pi/artmaker below with your actual install path (or symlink).
+#   3. Adjust User=/Group= if not running as user `pi`.
+#
+# Install:
+#   sudo cp deploy/artmaker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now artmaker.service
+#
+# Logs:
+#   journalctl -u artmaker.service -f
+
+[Unit]
+Description=Artmaker LED web server (uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/artmaker/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+ExecStart=/home/pi/artmaker/deploy/start-server.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

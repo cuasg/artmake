@@ -53,12 +53,10 @@ def build_routes(
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
 
+    # Only matrix sizes we support end-to-end.
     DEFAULT_PRESETS: list[tuple[int, int]] = [
-        (8, 8),
-        (16, 16),
         (32, 32),
         (64, 64),
-        (128, 128),
         (64, 96),
     ]
 
@@ -146,7 +144,16 @@ def build_routes(
             raise ValueError("source must be vectorized")
         img = Image.open(img_path).convert("RGB")
         img = crop_to_aspect(img, int(w), int(h), focus)
-        strokes = image_to_strokes_lineart(img, int(w), int(h))
+        # Use coverage-based downsample at a fixed higher internal scale for more
+        # consistent results across supported matrix sizes.
+        strokes = image_to_strokes_lineart(
+            img,
+            int(w),
+            int(h),
+            internal_scale=8,
+            downsample="coverage",
+            coverage_threshold=float(os.getenv("LINEART_COVERAGE_T", "0.09")),
+        )
         expanded_strokes = normalize_ai_strokes(strokes, int(w), int(h))
 
         payload = {

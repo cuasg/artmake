@@ -1,0 +1,11 @@
+# Install on Raspberry Pi OS only (ARM). Includes base app deps + GPIO LED driver.
+# Usage (from repo root, after creating venv):
+#   cd backend && python3 -m venv .venv && source .venv/bin/activate
+#   pip install --upgrade pip
+#   pip install -r requirements-pi.txt
+#
+# `rpi_ws281x` builds a native extension; on Pi, piwheels usually provides wheels.
+# Do not install this file on Windows/macOS for normal development — use requirements.txt.
+
+-r requirements.txt
+rpi_ws281x

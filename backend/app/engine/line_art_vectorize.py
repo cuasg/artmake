@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Set, Tuple
 
 import numpy as np
@@ -127,6 +128,8 @@ def image_to_strokes_lineart(
     invert: bool = False,
     auto_invert: bool = True,
     internal_scale: int = 4,
+    downsample: str = "any",  # any|coverage
+    coverage_threshold: float = 0.22,
 ) -> List[List[Point]]:
     """
     Convert black-on-white line art to stroke polylines by:
@@ -161,29 +164,57 @@ def image_to_strokes_lineart(
     t_hi = int(threshold) if threshold is not None else _otsu_threshold(a_hi)
     ink_hi = a_hi <= t_hi
 
-    # Light cleanup to reduce “broken” strokes from anti-aliased inputs:
-    # close small gaps before thinning (dilate then erode on the binary mask).
-    # Implemented via PIL filters to avoid extra deps.
-    try:
-        m = (ink_hi.astype(np.uint8) * 255)
-        im = Image.fromarray(m, mode="L")
-        im = im.filter(ImageFilter.MaxFilter(size=3)).filter(ImageFilter.MinFilter(size=3))
-        ink_hi = np.asarray(im).astype(np.uint8) > 0
-    except Exception:
-        pass
+    # Optional gap-closing (morphological close): bridges tiny breaks but also fills
+    # negative space and can swallow fine stray marks. Off by default — set
+    # LINEART_CLOSE_GAPS=1 to enable when inputs are very fragmented.
+    if os.getenv("LINEART_CLOSE_GAPS", "").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            m = (ink_hi.astype(np.uint8) * 255)
+            im = Image.fromarray(m, mode="L")
+            im = im.filter(ImageFilter.MaxFilter(size=3)).filter(ImageFilter.MinFilter(size=3))
+            ink_hi = np.asarray(im).astype(np.uint8) > 0
+        except Exception:
+            pass
 
-    ink_hi = _skeletonize_zhang_suen(ink_hi, max_iters=96)
-
-    # Downsample skeleton to W×H: if any skeleton pixel exists in the block, keep it.
-    ink = np.zeros((h, w), dtype=bool)
-    for yy in range(h):
-        y0 = yy * s
-        y1 = min(hh, (yy + 1) * s)
-        for xx in range(w):
-            x0 = xx * s
-            x1 = min(ww, (xx + 1) * s)
-            if np.any(ink_hi[y0:y1, x0:x1]):
-                ink[yy, xx] = True
+    # Downsample to target grid.
+    downsample = (downsample or "any").strip().lower()
+    if downsample == "coverage":
+        # Coverage-based downsample (more stable across target sizes):
+        # compute fraction of ink pixels per block, then threshold.
+        # This is less sensitive than "any pixel in block", and we do thinning only once
+        # on the final target grid.
+        if ww == w * s and hh == h * s:
+            m = ink_hi.astype(np.uint8).reshape(h, s, w, s).mean(axis=(1, 3))
+            t = float(coverage_threshold)
+            if t < 0.02:
+                t = 0.02
+            if t > 0.98:
+                t = 0.98
+            ink = m >= t
+        else:
+            # Fallback for odd sizes
+            ink = np.zeros((h, w), dtype=bool)
+            for yy in range(h):
+                y0 = yy * s
+                y1 = min(hh, (yy + 1) * s)
+                for xx in range(w):
+                    x0 = xx * s
+                    x1 = min(ww, (xx + 1) * s)
+                    blk = ink_hi[y0:y1, x0:x1]
+                    if blk.size and float(np.mean(blk.astype(np.float32))) >= float(coverage_threshold):
+                        ink[yy, xx] = True
+    else:
+        # Skeletonize at high-res first, then downsample by "any".
+        ink_hi = _skeletonize_zhang_suen(ink_hi, max_iters=96)
+        ink = np.zeros((h, w), dtype=bool)
+        for yy in range(h):
+            y0 = yy * s
+            y1 = min(hh, (yy + 1) * s)
+            for xx in range(w):
+                x0 = xx * s
+                x1 = min(ww, (xx + 1) * s)
+                if np.any(ink_hi[y0:y1, x0:x1]):
+                    ink[yy, xx] = True
 
     # Final thinning on target grid (ensures 1-dot width after downsampling).
     ink = _skeletonize_zhang_suen(ink, max_iters=64)
@@ -288,6 +319,13 @@ def image_to_strokes_lineart(
             seg = trace_edge(p, nb)
             if len(seg) >= 2:
                 strokes.append(seg)
+
+    # Recover isolated ink pixels (degree 0): graph tracing skips them entirely,
+    # but they are legitimate stray highlights/details on coarse matrices.
+    covered = {p for s in strokes for p in s}
+    for p in pts:
+        if p not in covered:
+            strokes.append([p])
 
     # Sort: longer strokes first to “lay down silhouette” before details.
     strokes.sort(key=len, reverse=True)

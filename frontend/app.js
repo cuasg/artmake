@@ -327,6 +327,31 @@ function applySettingsToUI(settings) {
   if ($("numErasePps") && !state.uiLocks.has("numErasePps") && !recentlyEdited("numErasePps")) $("numErasePps").value = String(settings.art.erase_pps ?? 800);
   if ($("selToolpathSource") && !state.uiLocks.has("selToolpathSource") && !recentlyEdited("selToolpathSource")) $("selToolpathSource").value = settings.art.toolpath_source || "auto";
 
+  if ($("selOutputMode") && !state.uiLocks.has("selOutputMode") && !recentlyEdited("selOutputMode")) {
+    $("selOutputMode").value = settings.output.mode || "simulator";
+  }
+  if ($("selPhotoPlayback") && !state.uiLocks.has("selPhotoPlayback") && !recentlyEdited("selPhotoPlayback")) {
+    $("selPhotoPlayback").value = settings.output.photo_playback || "selected";
+  }
+  if ($("numPiGpioPin") && !state.uiLocks.has("numPiGpioPin") && !recentlyEdited("numPiGpioPin")) {
+    $("numPiGpioPin").value = String(settings.output.pi_gpio_pin ?? 18);
+  }
+  if ($("selPiStripType") && !state.uiLocks.has("selPiStripType") && !recentlyEdited("selPiStripType")) {
+    $("selPiStripType").value = settings.output.pi_strip_type || "WS2812_STRIP";
+  }
+  if ($("rngPiStripBrightness") && !state.uiLocks.has("rngPiStripBrightness") && !recentlyEdited("rngPiStripBrightness")) {
+    $("rngPiStripBrightness").value = String(settings.output.pi_strip_brightness ?? 1);
+  }
+  if ($("txtPiStripBrightness") && !recentlyEdited("rngPiStripBrightness")) {
+    $("txtPiStripBrightness").textContent = Number(settings.output.pi_strip_brightness ?? 1).toFixed(2);
+  }
+  if ($("rngPiRgbGain") && !state.uiLocks.has("rngPiRgbGain") && !recentlyEdited("rngPiRgbGain")) {
+    $("rngPiRgbGain").value = String(settings.output.pi_rgb_gain ?? 1);
+  }
+  if ($("txtPiRgbGain") && !recentlyEdited("rngPiRgbGain")) {
+    $("txtPiRgbGain").textContent = Number(settings.output.pi_rgb_gain ?? 1).toFixed(2);
+  }
+
   syncPhotoLineDrawingUi(settings);
 }
 
@@ -690,6 +715,12 @@ function wireUi() {
   lockWhileInteracting("numHold", $("numHold"));
   lockWhileInteracting("numErasePps", $("numErasePps"));
   lockWhileInteracting("selToolpathSource", $("selToolpathSource"));
+  lockWhileInteracting("selOutputMode", $("selOutputMode"));
+  lockWhileInteracting("selPhotoPlayback", $("selPhotoPlayback"));
+  lockWhileInteracting("numPiGpioPin", $("numPiGpioPin"));
+  lockWhileInteracting("selPiStripType", $("selPiStripType"));
+  lockWhileInteracting("rngPiStripBrightness", $("rngPiStripBrightness"));
+  lockWhileInteracting("rngPiRgbGain", $("rngPiRgbGain"));
 
   $("btnStart")?.addEventListener("click", async () => {
     animateClick($("btnStart"));
@@ -810,6 +841,37 @@ function wireUi() {
     if ($("txtGlow")) $("txtGlow").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngGlow", Date.now());
     stageOrSendSettingsPatch({ simulator: { glow: v } });
+  });
+
+  $("selOutputMode")?.addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selOutputMode", Date.now());
+    stageOrSendSettingsPatch({ output: { mode: e.target.value } }, { immediate: true });
+  });
+  $("selPhotoPlayback")?.addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selPhotoPlayback", Date.now());
+    stageOrSendSettingsPatch({ output: { photo_playback: e.target.value } }, { immediate: true });
+  });
+  $("numPiGpioPin")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 2, 40);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numPiGpioPin", Date.now());
+    stageOrSendSettingsPatch({ output: { pi_gpio_pin: v } }, { immediate: true });
+  });
+  $("selPiStripType")?.addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selPiStripType", Date.now());
+    stageOrSendSettingsPatch({ output: { pi_strip_type: e.target.value } }, { immediate: true });
+  });
+  $("rngPiStripBrightness")?.addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 1);
+    if ($("txtPiStripBrightness")) $("txtPiStripBrightness").textContent = v.toFixed(2);
+    state.lastLocalEditAt.set("rngPiStripBrightness", Date.now());
+    stageOrSendSettingsPatch({ output: { pi_strip_brightness: v } });
+  });
+  $("rngPiRgbGain")?.addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 2);
+    if ($("txtPiRgbGain")) $("txtPiRgbGain").textContent = v.toFixed(2);
+    state.lastLocalEditAt.set("rngPiRgbGain", Date.now());
+    stageOrSendSettingsPatch({ output: { pi_rgb_gain: v } });
   });
 
   // Living drawing controls

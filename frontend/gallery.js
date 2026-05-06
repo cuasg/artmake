@@ -46,12 +46,79 @@ async function apiDelete(path) {
   return data;
 }
 
+const galleryState = {
+  pendingUpload: null, // { file: File, name: string, previewUrl: string }
+};
+
+async function apiUpload(path, file, opts = {}) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const label = (opts.label || "").trim();
+  if (label) fd.append("label", label);
+  const cropFocus = (opts.crop_focus || "").trim();
+  if (cropFocus) fd.append("crop_focus", cropFocus);
+  const res = await fetch(path, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
+  return await res.json();
+}
+
+function showUploadProgress(show) {
+  const wrap = $("uploadProgressWrap");
+  if (wrap) wrap.hidden = !show;
+}
+
+function setUploadUiBusy(on) {
+  const btnSave = $("btnUploadSave");
+  const btnClear = $("btnUploadClear");
+  const file = $("fileUpload");
+  const label = $("inpUploadLabel");
+  const crop = $("selCropFocus");
+  if (btnSave) btnSave.disabled = on || !galleryState.pendingUpload;
+  if (btnClear) btnClear.disabled = on || !galleryState.pendingUpload;
+  if (file) file.disabled = !!on;
+  if (label) label.disabled = !!on;
+  if (crop) crop.disabled = !!on;
+}
+
+function setUploadProgress(pct, text = null) {
+  const bar = $("uploadProgressBar");
+  const txt = $("txtUploadProgress");
+  const pctEl = $("txtUploadProgressPct");
+  if (txt && text != null) txt.textContent = String(text);
+  if (!bar) return;
+  bar.classList.remove("indeterminate");
+  const p = Math.max(0, Math.min(1, Number(pct)));
+  bar.style.width = `${Math.round(p * 100)}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(p * 100)}%`;
+}
+
+function setUploadIndeterminate(text = "Working…") {
+  const bar = $("uploadProgressBar");
+  const txt = $("txtUploadProgress");
+  const pctEl = $("txtUploadProgressPct");
+  if (txt) txt.textContent = text;
+  if (pctEl) pctEl.textContent = "";
+  if (bar) {
+    bar.classList.add("indeterminate");
+    bar.style.width = "40%";
+  }
+}
+
+async function pollJob(jobId, { onUpdate } = {}) {
+  const start = Date.now();
+  while (true) {
+    const j = await apiGet(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (typeof onUpdate === "function") onUpdate(j);
+    if (j && (j.status === "done" || j.status === "error")) return j;
+    const age = Date.now() - start;
+    const delay = age < 4000 ? 350 : age < 15000 ? 650 : 1000;
+    await new Promise((r) => window.setTimeout(r, delay));
+  }
+}
+
 const PRESETS = [
-  { w: 8, h: 8, label: "8×8" },
-  { w: 16, h: 16, label: "16×16" },
   { w: 32, h: 32, label: "32×32" },
   { w: 64, h: 64, label: "64×64" },
-  { w: 128, h: 128, label: "128×128" },
   { w: 64, h: 96, label: "64×96" },
 ];
 
@@ -194,6 +261,75 @@ async function main() {
   if (!grid) return;
 
   const modal = wireModal();
+
+  // Upload workflow (staged save + progress)
+  const fileEl = $("fileUpload");
+  if (fileEl) {
+    fileEl.addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      if (galleryState.pendingUpload && galleryState.pendingUpload.previewUrl) {
+        try { URL.revokeObjectURL(galleryState.pendingUpload.previewUrl); } catch (_) {}
+      }
+      const url = URL.createObjectURL(f);
+      galleryState.pendingUpload = { file: f, name: f.name || "selected file", previewUrl: url };
+      const img = $("imgUploadPreview");
+      if (img) img.src = url;
+      const picked = $("txtUploadPicked");
+      if (picked) picked.textContent = galleryState.pendingUpload.name;
+      setUploadUiBusy(false);
+    });
+  }
+
+  $("btnUploadClear")?.addEventListener("click", () => {
+    if (galleryState.pendingUpload && galleryState.pendingUpload.previewUrl) {
+      try { URL.revokeObjectURL(galleryState.pendingUpload.previewUrl); } catch (_) {}
+    }
+    galleryState.pendingUpload = null;
+    if ($("fileUpload")) $("fileUpload").value = "";
+    if ($("imgUploadPreview")) $("imgUploadPreview").src = "";
+    if ($("txtUploadPicked")) $("txtUploadPicked").textContent = "";
+    showUploadProgress(false);
+    setUploadUiBusy(false);
+  });
+
+  $("btnUploadSave")?.addEventListener("click", async () => {
+    const pending = galleryState.pendingUpload;
+    if (!pending || !pending.file) return;
+    showUploadProgress(true);
+    setUploadIndeterminate("Uploading…");
+    setUploadUiBusy(true);
+    try {
+      const uploaded = await apiUpload("/api/images/upload", pending.file, {
+        label: ($("inpUploadLabel")?.value || "").trim(),
+        crop_focus: ($("selCropFocus")?.value || "center").trim(),
+      });
+      const jobId = uploaded && uploaded.job_id ? uploaded.job_id : null;
+      if (jobId) {
+        const done = await pollJob(jobId, {
+          onUpdate: (j) => {
+            const total = Math.max(1, Number(j.total || 1));
+            const finished = Math.max(0, Number(j.done || 0));
+            const pct = finished / total;
+            const step = j.current ? ` · ${j.current}` : "";
+            setUploadProgress(pct, `${j.status_label || "Generating presets"}${step}`);
+          },
+        });
+        if (done && done.status === "error") throw new Error(done.error || "Upload job failed");
+      } else {
+        setUploadProgress(1, "Done");
+      }
+
+      if ($("inpUploadLabel")) $("inpUploadLabel").value = "";
+      $("btnUploadClear")?.click();
+      window.location.reload();
+    } catch (e) {
+      window.alert(String(e && e.message ? e.message : e));
+    } finally {
+      showUploadProgress(false);
+      setUploadUiBusy(false);
+    }
+  });
 
   try {
     const list = await apiGet("/api/images");

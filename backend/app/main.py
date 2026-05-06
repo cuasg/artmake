@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Light Canvas", version="0.1.0")
 
     app.include_router(build_routes(settings_service, perf_service, image_library, renderer))
-    app.include_router(build_websocket(settings_service, perf_service, renderer))
+    app.include_router(build_websocket(settings_service, perf_service, renderer, image_library))
 
     # Serve the frontend at /
     if frontend_dir.exists():
