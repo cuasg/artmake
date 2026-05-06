@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Light Canvas</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="appShell">
+      <header class="topBar">
+        <div class="brand">
+          <div class="brandTitle">AI Light Canvas</div>
+          <div class="brandSub">Ambient generative LED matrix simulator</div>
+        </div>
+
+        <div class="topBarActions">
+          <button id="btnStart" class="btn primary">Start</button>
+          <button id="btnStop" class="btn">Stop</button>
+          <button id="btnReset" class="btn">Reset</button>
+          <button id="btnSettings" class="btn ghost" aria-expanded="false">Settings</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="canvasPanel">
+          <div class="canvasWrap">
+            <canvas id="matrixCanvas" width="640" height="640"></canvas>
+          </div>
+          <div class="statusBar">
+            <div class="statusItem">
+              <span class="label">Connection</span>
+              <span id="statusConnection" class="value">…</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">Run</span>
+              <span id="statusRunning" class="value">—</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">Output</span>
+              <span id="statusOutput" class="value">simulator</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">Matrix</span>
+              <span id="statusMatrix" class="value">—</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">FPS</span>
+              <span id="statusFps" class="value">—</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">Pattern</span>
+              <span id="statusPattern" class="value">—</span>
+            </div>
+            <div class="statusItem">
+              <span class="label">Frame</span>
+              <span id="statusSeq" class="value">—</span>
+            </div>
+          </div>
+        </section>
+
+        <aside id="settingsPanel" class="settingsPanel" hidden>
+          <div class="settingsHeader">
+            <div class="settingsTitle">Controls</div>
+            <div class="settingsHint">One brightness control applies to every pattern, including photo traces.</div>
+          </div>
+
+          <div class="settingsScroll">
+            <details class="settingsFold" open>
+              <summary><span class="foldSummaryLabel">Art &amp; motion</span></summary>
+              <div class="foldInner">
+                <p class="foldLead">
+                  Pick what generates light. <strong>Speed</strong> shapes ambient loops; photo traces use the speeds in <em>Photo → line drawing</em> below.
+                </p>
+                <label class="field">
+                  <span class="fieldLabel">Pattern</span>
+                  <select id="selPattern"></select>
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Brightness (all patterns)</span>
+                  <div class="rangeRow">
+                    <input id="rngBrightness" type="range" min="0" max="1" step="0.01" />
+                    <span id="txtBrightness" class="mono">—</span>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Ambient motion speed</span>
+                  <div class="rangeRow">
+                    <input id="rngSpeed" type="range" min="0" max="5" step="0.01" />
+                    <span id="txtSpeed" class="mono">—</span>
+                  </div>
+                </label>
+
+                <div id="photoPatternHint" class="patternHint" aria-live="polite"></div>
+              </div>
+            </details>
+
+            <details class="settingsFold" open>
+              <summary><span class="foldSummaryLabel">Matrix &amp; LED preview</span></summary>
+              <div class="foldInner">
+                <p class="foldLead">
+                  Resolution drives both the simulator canvas <strong>and</strong> photo toolpaths (pick size before refining with ChatGPT).
+                </p>
+                <label class="field">
+                  <span class="fieldLabel">Matrix preset</span>
+                  <select id="selMatrixPreset">
+                    <option value="32x32">32 × 32</option>
+                    <option value="64x64">64 × 64</option>
+                    <option value="128x64">128 × 64</option>
+                    <option value="128x128">128 × 128</option>
+                  </select>
+                </label>
+
+                <div class="foldDivider"></div>
+                <div class="subHeading">How LEDs render</div>
+
+                <label class="field">
+                  <span class="fieldLabel">LED shape</span>
+                  <select id="selLedShape">
+                    <option value="circle">Circle</option>
+                    <option value="square">Square</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">LED spacing</span>
+                  <div class="rangeRow">
+                    <input id="rngLedSpacing" type="range" min="0" max="8" step="1" />
+                    <span id="txtLedSpacing" class="mono">—</span>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Glow</span>
+                  <div class="rangeRow">
+                    <input id="rngGlow" type="range" min="0" max="1" step="0.01" />
+                    <span id="txtGlow" class="mono">—</span>
+                  </div>
+                </label>
+              </div>
+            </details>
+
+            <details class="settingsFold" open>
+              <summary><span class="foldSummaryLabel">Streaming &amp; performance</span></summary>
+              <div class="foldInner">
+                <p class="foldLead">
+                  Target frame rate and auto tuning affect smoothness and CPU use; learned caps stay tied to the current matrix size and pattern.
+                </p>
+                <div class="fieldGrid2">
+                  <label class="field">
+                    <span class="fieldLabel">Target FPS</span>
+                    <input id="numFps" type="number" min="1" max="120" step="1" />
+                  </label>
+                  <label class="field">
+                    <span class="fieldLabel">Auto-tune FPS</span>
+                    <select id="selAutoFps">
+                      <option value="true">On (recommended)</option>
+                      <option value="false">Off</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="fieldLabel">Max FPS cap</span>
+                    <input id="numMaxFps" type="number" min="1" max="120" step="1" />
+                  </label>
+                  <label class="field">
+                    <span class="fieldLabel">Auto-learn cap</span>
+                    <select id="selAutoLearn">
+                      <option value="true">On</option>
+                      <option value="false">Off</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="btnRow" style="margin-top: 12px">
+                  <button id="btnResetLearned" class="btn" type="button">Reset learned FPS cap</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="settingsFold" id="foldLivingDrawing" open>
+              <summary><span class="foldSummaryLabel">Photo → line drawing</span></summary>
+              <div class="foldInner">
+                <p class="foldLead">
+                  Upload once, optionally refine for a cleaner single stroke, then paint with the same <strong>brightness</strong> slider as other patterns. Paths always match the <strong>matrix preset</strong> above.
+                </p>
+
+                <label class="field">
+                  <span class="fieldLabel">Display name (optional)</span>
+                  <input
+                    id="inpUploadLabel"
+                    type="text"
+                    maxlength="120"
+                    placeholder="Shown in the library, e.g. Beach sunset"
+                    autocomplete="off"
+                  />
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Source image</span>
+                  <input id="fileUpload" type="file" accept="image/*" />
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Library</span>
+                  <select id="selDrawing"></select>
+                </label>
+
+                <label class="field">
+                  <span class="fieldLabel">Rename selected</span>
+                  <input
+                    id="inpRenameDrawing"
+                    type="text"
+                    maxlength="120"
+                    placeholder="New display name"
+                    autocomplete="off"
+                  />
+                </label>
+                <div class="btnRow">
+                  <button id="btnRenameDrawing" class="btn" type="button">Save name</button>
+                </div>
+
+                <div class="btnRow">
+                  <button id="btnDeleteAiToolpath" class="btn" type="button">Remove AI path</button>
+                  <button id="btnDeleteImage" class="btn danger" type="button">Delete upload</button>
+                </div>
+                <p class="muted" style="margin-top: 8px">
+                  Remove AI path keeps the photo and uses the built‑in trace. Delete upload removes the file and any AI path (cannot be undone).
+                </p>
+
+                <div class="btnRow">
+                  <button id="btnRefineToolpath" class="btn" type="button">Refine with ChatGPT</button>
+                </div>
+                <div id="txtRefineStatus" class="muted" style="margin-top: 8px"></div>
+
+                <details class="settingsSub">
+                  <summary><span class="foldSummaryLabel">ChatGPT credentials</span></summary>
+                  <div class="foldInner">
+                    <form id="formOpenAiCred" autocomplete="off" onsubmit="return false;">
+                      <p class="foldLead" style="margin-bottom: 10px">
+                        Saved to <span class="mono">config/settings.yaml</span> on this machine. Keys are never echoed back in API responses.
+                      </p>
+                      <label class="field">
+                        <span class="fieldLabel">API key</span>
+                        <input
+                          id="inpOpenAiApiKey"
+                          name="openai_api_key"
+                          type="password"
+                          autocomplete="new-password"
+                          placeholder="Paste key, then Save"
+                        />
+                      </label>
+                      <div class="btnRow" style="margin-top: 8px">
+                        <button id="btnSaveOpenAiKey" class="btn" type="button">Save key</button>
+                        <button id="btnClearOpenAiKey" class="btn" type="button">Clear key</button>
+                      </div>
+                      <div id="txtOpenAiKeyHint" class="muted" style="margin-top: 8px"></div>
+                      <label class="field">
+                        <span class="fieldLabel">Model</span>
+                        <input id="txtOpenAiModel" name="openai_model" type="text" autocomplete="off" placeholder="e.g. gpt-5-mini" />
+                      </label>
+                    </form>
+                  </div>
+                </details>
+
+                <div class="foldDivider"></div>
+                <div class="subHeading">On-matrix playback</div>
+
+                <label class="field">
+                  <span class="fieldLabel">Line color</span>
+                  <input id="clrLine" type="color" value="#b8d7ff" />
+                </label>
+
+                <div class="fieldGrid2">
+                  <label class="field">
+                    <span class="fieldLabel">Draw speed</span>
+                    <input id="numDrawPps" type="number" min="10" max="5000" step="10" />
+                  </label>
+                  <label class="field">
+                    <span class="fieldLabel">Hold (show)</span>
+                    <input id="numHold" type="number" min="0" max="60" step="0.5" />
+                  </label>
+                  <label class="field" style="grid-column: 1 / -1">
+                    <span class="fieldLabel">Erase speed</span>
+                    <input id="numErasePps" type="number" min="10" max="20000" step="50" />
+                  </label>
+                </div>
+                <p class="muted" style="margin-top: 8px">Draw / hold / erase speeds are points per second on the LED path.</p>
+
+                <div class="btnRow" style="margin-top: 14px">
+                  <button id="btnUseLivingDrawing" class="btn primary" type="button">Apply photo line drawing</button>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="settingsFooter">
+            <div class="muted">Start the stream to preview changes live.</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

@@ -1,0 +1,909 @@
+/* global window, document, fetch */
+
+const $ = (id) => document.getElementById(id);
+const setText = (id, text) => {
+  const el = $(id);
+  if (el) el.textContent = text;
+};
+
+const state = {
+  ws: null,
+  connected: false,
+  lastFrame: null,
+  lastSettings: null,
+  patterns: [],
+  // Controls are often updated from server frame payloads; we must not
+  // overwrite a user edit mid-drag. We track "recent local edits" per control.
+  uiLocks: new Set(),
+  lastLocalEditAt: new Map(), // key -> ms timestamp
+  wsGen: 0,
+  reconnectTimer: null,
+  render: {
+    ledShape: "circle",
+    ledSpacing: 1,
+    glow: 0.25,
+  },
+  canvas: {
+    el: null,
+    ctx: null,
+    dpr: 1,
+    w: 0,
+    h: 0,
+  },
+  pendingPatch: null,
+  patchTimer: null,
+  inFlightPatch: null,
+  inFlightSince: 0,
+};
+
+function wsUrl() {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/ws`;
+}
+
+function setConnectionStatus(text) {
+  setText("statusConnection", text);
+}
+
+async function apiGet(path) {
+  const res = await fetch(path, { method: "GET" });
+  if (!res.ok) throw new Error(`GET ${path} failed (${res.status})`);
+  return await res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : "{}",
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
+  return await res.json();
+}
+
+async function apiPostDetailed(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : "{}",
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = data && data.detail;
+    const msg =
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail) && detail.length
+          ? detail.map((d) => d.msg || d).join("; ")
+          : `POST ${path} failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function apiUpload(path, file, opts = {}) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const label = (opts.label || "").trim();
+  if (label) fd.append("label", label);
+  const res = await fetch(path, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
+  return await res.json();
+}
+
+async function apiPatch(path, body) {
+  const res = await fetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`PATCH ${path} failed (${res.status})`);
+  return await res.json();
+}
+
+async function apiDelete(path) {
+  const res = await fetch(path, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data && data.detail;
+    const msg = typeof detail === "string" ? detail : `DELETE ${path} failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function formatMatrix(settings) {
+  const w = settings?.matrix?.width;
+  const h = settings?.matrix?.height;
+  if (!w || !h) return "—";
+  return `${w}×${h}`;
+}
+
+function syncPhotoLineDrawingUi(settings) {
+  const hint = $("photoPatternHint");
+  const fold = $("foldLivingDrawing");
+  const pattern = settings?.art?.pattern ?? ($("selPattern")?.value || "");
+  const isPhoto = pattern === "living_drawing";
+  if (hint) {
+    if (isPhoto) {
+      hint.textContent = "";
+      hint.classList.remove("isVisible");
+    } else {
+      hint.textContent =
+        "Choose Living drawing in Pattern to animate uploads on the matrix (brightness above applies there too).";
+      hint.classList.add("isVisible");
+    }
+  }
+  if (fold && isPhoto) fold.open = true;
+}
+
+function applySettingsToUI(settings) {
+  if (!settings) return;
+
+  // Some messages (e.g. "status") can be partial. Only proceed when we have
+  // the core sub-objects required to render the UI controls.
+  const hasFullShape =
+    settings.matrix && settings.stream && settings.art && settings.simulator && settings.output;
+
+  const recentlyEdited = (key, windowMs = 700) => {
+    const t = state.lastLocalEditAt.get(key) || 0;
+    return Date.now() - t < windowMs;
+  };
+
+  $("statusOutput").textContent = settings?.output?.mode || "simulator";
+  setText("statusOutput", settings?.output?.mode || "simulator");
+  setText("statusRunning", settings?.running ? "running" : "stopped");
+  setText("statusMatrix", formatMatrix(settings));
+  const learned = settings.learned?.learned_max_fps;
+  const learnedProfile = settings.learned?.profile;
+  const learnedLabel = learned ? `, learned ${learned}${learnedProfile ? ` (${learnedProfile})` : ""}` : "";
+  const fpsLabel =
+    settings?.stream
+      ? (settings.stream.auto_fps
+          ? `${settings.stream.fps} (auto, cap ${settings.stream.max_fps}${learnedLabel})`
+          : `${settings.stream.fps}`)
+      : "—";
+  setText("statusFps", fpsLabel);
+  setText("statusPattern", String(settings?.art?.pattern ?? "—"));
+
+  const oa = settings.integrations?.openai;
+  if (oa) {
+    if ($("txtOpenAiKeyHint")) {
+      $("txtOpenAiKeyHint").textContent = oa.api_key_configured
+        ? "API key is saved locally."
+        : "No API key saved yet — use Save key or set OPENAI_API_KEY in the environment.";
+    }
+    if ($("txtOpenAiModel") && !state.uiLocks.has("txtOpenAiModel") && !recentlyEdited("txtOpenAiModel")) {
+      $("txtOpenAiModel").value = oa.model || "";
+    }
+  }
+
+  if (!hasFullShape) return;
+
+  if (!state.uiLocks.has("selPattern") && !recentlyEdited("selPattern")) $("selPattern").value = settings.art.pattern;
+  if (!state.uiLocks.has("rngBrightness") && !recentlyEdited("rngBrightness")) $("rngBrightness").value = String(settings.art.brightness);
+  if (!recentlyEdited("rngBrightness")) $("txtBrightness").textContent = Number(settings.art.brightness).toFixed(2);
+  if (!state.uiLocks.has("rngSpeed") && !recentlyEdited("rngSpeed")) $("rngSpeed").value = String(settings.art.speed);
+  if (!recentlyEdited("rngSpeed")) $("txtSpeed").textContent = Number(settings.art.speed).toFixed(2);
+  if (!state.uiLocks.has("numFps") && !recentlyEdited("numFps")) $("numFps").value = String(settings.stream.fps);
+  if (!state.uiLocks.has("selAutoFps") && !recentlyEdited("selAutoFps")) $("selAutoFps").value = String(!!settings.stream.auto_fps);
+  if (!state.uiLocks.has("numMaxFps") && !recentlyEdited("numMaxFps")) $("numMaxFps").value = String(settings.stream.max_fps);
+  if (!state.uiLocks.has("selAutoLearn") && !recentlyEdited("selAutoLearn")) $("selAutoLearn").value = String(!!settings.stream.auto_learn);
+
+  const preset = `${settings.matrix.width}x${settings.matrix.height}`;
+  if (!state.uiLocks.has("selMatrixPreset") && !recentlyEdited("selMatrixPreset")) $("selMatrixPreset").value = preset;
+
+  if (!state.uiLocks.has("selLedShape") && !recentlyEdited("selLedShape")) $("selLedShape").value = settings.simulator.led_shape;
+  if (!state.uiLocks.has("rngLedSpacing") && !recentlyEdited("rngLedSpacing")) $("rngLedSpacing").value = String(settings.simulator.led_spacing);
+  if (!recentlyEdited("rngLedSpacing")) $("txtLedSpacing").textContent = String(settings.simulator.led_spacing);
+  if (!state.uiLocks.has("rngGlow") && !recentlyEdited("rngGlow")) $("rngGlow").value = String(settings.simulator.glow);
+  if (!recentlyEdited("rngGlow")) $("txtGlow").textContent = Number(settings.simulator.glow).toFixed(2);
+
+  state.render.ledShape = settings.simulator.led_shape;
+  state.render.ledSpacing = settings.simulator.led_spacing;
+  state.render.glow = settings.simulator.glow;
+
+  // Living drawing defaults
+  if ($("clrLine")) $("clrLine").value = settings.art.line_color || "#b8d7ff";
+  if ($("numDrawPps")) $("numDrawPps").value = String(settings.art.draw_pps ?? 250);
+  if ($("numHold")) $("numHold").value = String(settings.art.hold_seconds ?? 4);
+  if ($("numErasePps")) $("numErasePps").value = String(settings.art.erase_pps ?? 800);
+
+  syncPhotoLineDrawingUi(settings);
+}
+
+function effectiveOverlayPatch() {
+  // While a settings update is in-flight, keep overlaying it on top of
+  // any server settings to prevent UI snap-back.
+  if (state.inFlightPatch && state.pendingPatch) return deepMerge(state.inFlightPatch, state.pendingPatch);
+  return state.inFlightPatch || state.pendingPatch;
+}
+
+async function sendSettingsPatchNow() {
+  if (state.patchTimer) {
+    window.clearTimeout(state.patchTimer);
+    state.patchTimer = null;
+  }
+  if (state.inFlightPatch) return; // already sending; we'll send again after it completes
+  if (!state.pendingPatch) return;
+
+  const toSend = state.pendingPatch;
+  // Keep it overlaid until we get an ack.
+  state.inFlightPatch = toSend;
+  state.inFlightSince = Date.now();
+  state.pendingPatch = null;
+
+  try {
+    const updated = await apiPost("/api/settings", sanitizeSettingsPatchForApi(toSend));
+    state.lastSettings = updated;
+    state.inFlightPatch = null;
+    applySettingsToUI(updated);
+  } catch (err) {
+    console.error(err);
+    // Keep overlay for a bit; then drop so UI can recover.
+    // (Most likely a transient network issue.)
+    if (Date.now() - state.inFlightSince > 2500) {
+      state.inFlightPatch = null;
+    }
+  } finally {
+    // If changes accumulated while we were sending, send again immediately.
+    if (state.pendingPatch) {
+      // Avoid tight loop; yield a tick.
+      window.setTimeout(() => { void sendSettingsPatchNow(); }, 0);
+    }
+  }
+}
+
+function queueSettingsPatch(patch, opts = { immediate: false }) {
+  // Merge patches locally and debounce network call.
+  state.pendingPatch = deepMerge(state.pendingPatch || {}, patch);
+
+  // Optimistic UI: apply overlay immediately.
+  if (state.lastSettings) {
+    const overlay = effectiveOverlayPatch();
+    const merged = overlay ? deepMerge(state.lastSettings, overlay) : state.lastSettings;
+    applySettingsToUI(merged);
+  }
+
+  if (opts.immediate) {
+    void sendSettingsPatchNow();
+    return;
+  }
+
+  if (state.patchTimer) window.clearTimeout(state.patchTimer);
+  state.patchTimer = window.setTimeout(() => {
+    void sendSettingsPatchNow();
+  }, 80);
+}
+
+function deepMerge(base, patch) {
+  if (base && typeof base === "object" && !Array.isArray(base) && patch && typeof patch === "object" && !Array.isArray(patch)) {
+    const out = { ...base };
+    for (const [k, v] of Object.entries(patch)) {
+      out[k] = deepMerge(out[k], v);
+    }
+    return out;
+  }
+  return patch;
+}
+
+/** Strip UI/runtime-only keys so optimistic merges never POST junk that breaks pydantic or YAML. */
+function sanitizeSettingsPatchForApi(patch) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
+  const out = { ...patch };
+  delete out.learned;
+  delete out.effective_fps;
+  delete out.version;
+  if (out.integrations && typeof out.integrations === "object") {
+    out.integrations = { ...out.integrations };
+    const oa = out.integrations.openai;
+    if (oa && typeof oa === "object") {
+      out.integrations.openai = { ...oa };
+      delete out.integrations.openai.api_key_configured;
+    }
+  }
+  return out;
+}
+
+function initCanvas() {
+  state.canvas.el = $("matrixCanvas");
+  state.canvas.ctx = state.canvas.el.getContext("2d", { alpha: false });
+  resizeCanvasToCss();
+  window.addEventListener("resize", () => resizeCanvasToCss());
+}
+
+function resizeCanvasToCss() {
+  const canvas = state.canvas.el;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  state.canvas.dpr = dpr;
+
+  const w = Math.max(1, Math.floor(rect.width * dpr));
+  const h = Math.max(1, Math.floor(rect.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  state.canvas.w = w;
+  state.canvas.h = h;
+}
+
+function clearCanvas() {
+  const { ctx, w, h } = state.canvas;
+  ctx.fillStyle = "rgb(8,10,14)";
+  ctx.fillRect(0, 0, w, h);
+}
+
+function drawFrame(frame) {
+  if (!frame) return;
+  const { ctx, w: cw, h: ch } = state.canvas;
+  const mw = frame.width;
+  const mh = frame.height;
+  const pixels = frame.pixels;
+  const rgb = frame.rgb;
+  if (!mw || !mh) return;
+  if (!pixels && !rgb) return;
+
+  // Determine cell size to fit matrix into canvas.
+  const spacing = Math.max(0, Number(state.render.ledSpacing) || 0);
+  const cellW = Math.floor((cw - spacing * (mw + 1)) / mw);
+  const cellH = Math.floor((ch - spacing * (mh + 1)) / mh);
+  const cell = Math.max(1, Math.min(cellW, cellH));
+
+  const gridW = mw * cell + spacing * (mw + 1);
+  const gridH = mh * cell + spacing * (mh + 1);
+  const ox = Math.floor((cw - gridW) / 2);
+  const oy = Math.floor((ch - gridH) / 2);
+
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.fillStyle = "rgb(8,10,14)";
+  ctx.fillRect(0, 0, cw, ch);
+
+  const glow = Math.max(0, Math.min(1, Number(state.render.glow) || 0));
+  ctx.shadowBlur = glow * cell * 0.9;
+
+  const isCircle = state.render.ledShape === "circle";
+  const r = isCircle ? Math.floor(cell / 2) : 0;
+
+  if (rgb) {
+    let i = 0;
+    for (let y = 0; y < mh; y++) {
+      for (let x = 0; x < mw; x++) {
+        const rr = rgb[i];
+        const gg = rgb[i + 1];
+        const bb = rgb[i + 2];
+        i += 3;
+
+        const px = ox + spacing + x * (cell + spacing);
+        const py = oy + spacing + y * (cell + spacing);
+
+        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+        ctx.shadowColor = `rgba(${rr},${gg},${bb},${0.25 + glow * 0.45})`;
+
+        if (isCircle) {
+          ctx.beginPath();
+          ctx.arc(px + r, py + r, Math.max(1, r - 0.3), 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(px, py, cell, cell);
+        }
+      }
+    }
+  } else {
+    for (let y = 0; y < mh; y++) {
+      const row = pixels[y];
+      if (!row) continue;
+      for (let x = 0; x < mw; x++) {
+        const pxl = row[x];
+        if (!pxl) continue;
+        const [rr, gg, bb] = pxl;
+
+        const px = ox + spacing + x * (cell + spacing);
+        const py = oy + spacing + y * (cell + spacing);
+
+        ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+        ctx.shadowColor = `rgba(${rr},${gg},${bb},${0.25 + glow * 0.45})`;
+
+        if (isCircle) {
+          ctx.beginPath();
+          ctx.arc(px + r, py + r, Math.max(1, r - 0.3), 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(px, py, cell, cell);
+        }
+      }
+    }
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+function connectWs() {
+  state.wsGen += 1;
+  const myGen = state.wsGen;
+  if (state.reconnectTimer) {
+    window.clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+
+  // Close previous socket without triggering a reconnect loop.
+  if (state.ws) {
+    try {
+      state.ws.onopen = null;
+      state.ws.onclose = null;
+      state.ws.onerror = null;
+      state.ws.onmessage = null;
+      state.ws.close();
+    } catch (_) {}
+  }
+
+  setConnectionStatus("connecting…");
+  const ws = new WebSocket(wsUrl());
+  ws.binaryType = "arraybuffer";
+  state.ws = ws;
+
+  ws.onopen = () => {
+    if (myGen !== state.wsGen) return;
+    state.connected = true;
+    setConnectionStatus("connected");
+  };
+
+  ws.onclose = () => {
+    if (myGen !== state.wsGen) return;
+    state.connected = false;
+    setConnectionStatus("disconnected");
+    // Reconnect with a gentle backoff.
+    state.reconnectTimer = window.setTimeout(connectWs, 800);
+  };
+
+  ws.onerror = () => {
+    if (myGen !== state.wsGen) return;
+    setConnectionStatus("error");
+  };
+
+  ws.onmessage = (ev) => {
+    if (myGen !== state.wsGen) return;
+
+    if (ev.data instanceof ArrayBuffer) {
+      const buf = new Uint8Array(ev.data);
+      if (buf.length < 8) return;
+      const w = buf[0] | (buf[1] << 8);
+      const h = buf[2] | (buf[3] << 8);
+      const seq = (buf[4]) | (buf[5] << 8) | (buf[6] << 16) | (buf[7] << 24);
+      const rgb = buf.subarray(8);
+      state.lastFrame = { width: w, height: h, rgb };
+      drawFrame(state.lastFrame);
+      setText("statusSeq", String(seq));
+      return;
+    }
+
+    let msg;
+    try {
+      msg = JSON.parse(ev.data);
+    } catch (e) {
+      return;
+    }
+
+    if (msg.type === "status") {
+      // Status messages are partial. Merge into the last full settings object.
+      const base = state.lastSettings && typeof state.lastSettings === "object" ? state.lastSettings : {};
+      const mergedStatus = deepMerge(base, msg.settings || {});
+      state.lastSettings = mergedStatus;
+      const overlay = effectiveOverlayPatch();
+      const merged = overlay ? deepMerge(mergedStatus, overlay) : mergedStatus;
+      applySettingsToUI(merged);
+      if (!msg.settings?.running) {
+        // On stop, visually freeze/clear so "stopped" is obvious.
+        clearCanvas();
+        setText("statusSeq", "—");
+      }
+      return;
+    }
+
+    if (msg.type === "settings") {
+      // Server-authoritative settings broadcast (sent only when changed).
+      // Merge so partial WS payloads (e.g. no integrations block) don't wipe UI-only fields.
+      const base = state.lastSettings && typeof state.lastSettings === "object" ? state.lastSettings : {};
+      const s = deepMerge(base, msg.settings || {});
+      state.lastSettings = s;
+      const overlay = effectiveOverlayPatch();
+      const merged = overlay ? deepMerge(s, overlay) : s;
+      applySettingsToUI(merged);
+      return;
+    }
+
+    // JSON frames are no longer used; frames arrive as binary ArrayBuffer.
+  };
+}
+
+function lockWhileInteracting(id, el) {
+  const lock = () => state.uiLocks.add(id);
+  const unlock = () => state.uiLocks.delete(id);
+  const markEdit = () => state.lastLocalEditAt.set(id, Date.now());
+
+  el.addEventListener("pointerdown", lock);
+  el.addEventListener("pointerup", unlock);
+  el.addEventListener("pointercancel", unlock);
+  el.addEventListener("blur", unlock);
+  el.addEventListener("focus", lock);
+  el.addEventListener("input", markEdit);
+  el.addEventListener("change", markEdit);
+}
+
+function clampNumber(n, min, max) {
+  if (Number.isNaN(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function wireUi() {
+  // Prevent server updates from snapping active controls back while editing.
+  lockWhileInteracting("selPattern", $("selPattern"));
+  lockWhileInteracting("rngBrightness", $("rngBrightness"));
+  lockWhileInteracting("rngSpeed", $("rngSpeed"));
+  lockWhileInteracting("numFps", $("numFps"));
+  lockWhileInteracting("selAutoFps", $("selAutoFps"));
+  lockWhileInteracting("numMaxFps", $("numMaxFps"));
+  lockWhileInteracting("selAutoLearn", $("selAutoLearn"));
+  lockWhileInteracting("selMatrixPreset", $("selMatrixPreset"));
+  lockWhileInteracting("selLedShape", $("selLedShape"));
+  lockWhileInteracting("rngLedSpacing", $("rngLedSpacing"));
+  lockWhileInteracting("rngGlow", $("rngGlow"));
+  lockWhileInteracting("txtOpenAiModel", $("txtOpenAiModel"));
+
+  $("btnStart").addEventListener("click", async () => {
+    try {
+      const updated = await apiPost("/api/control/start");
+      state.lastSettings = updated;
+      applySettingsToUI(updated);
+      // Ensure frames resume immediately even if ws stalled.
+      if (!state.connected) connectWs();
+    } catch (e) { console.error(e); }
+  });
+  $("btnStop").addEventListener("click", async () => {
+    try {
+      const updated = await apiPost("/api/control/stop");
+      state.lastSettings = updated;
+      applySettingsToUI(updated);
+      clearCanvas();
+      setText("statusSeq", "—");
+    } catch (e) { console.error(e); }
+  });
+  $("btnReset").addEventListener("click", async () => {
+    try {
+      const updated = await apiPost("/api/control/reset");
+      state.lastSettings = updated;
+      applySettingsToUI(updated);
+    } catch (e) { console.error(e); }
+    clearCanvas();
+  });
+
+  $("btnSaveOpenAiKey").addEventListener("click", () => {
+    const v = ($("inpOpenAiApiKey")?.value || "").trim();
+    if (!v) {
+      const hint = $("txtOpenAiKeyHint");
+      if (hint) hint.textContent = "Type an API key, then click Save key.";
+      return;
+    }
+    queueSettingsPatch({ integrations: { openai: { api_key: v } } }, { immediate: true });
+    if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
+  });
+  $("btnClearOpenAiKey").addEventListener("click", () => {
+    queueSettingsPatch({ integrations: { openai: { api_key: "" } } }, { immediate: true });
+    if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
+  });
+  $("txtOpenAiModel").addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("txtOpenAiModel", Date.now());
+    queueSettingsPatch({ integrations: { openai: { model: e.target.value.trim() } } });
+  });
+
+  $("btnSettings").addEventListener("click", () => {
+    const panel = $("settingsPanel");
+    const btn = $("btnSettings");
+    const next = panel.hidden;
+    panel.hidden = !next;
+    btn.setAttribute("aria-expanded", String(next));
+  });
+
+  $("selPattern").addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selPattern", Date.now());
+    // Pattern switches should feel instant; trigger transition immediately.
+    queueSettingsPatch({ art: { pattern: e.target.value } }, { immediate: true });
+    syncPhotoLineDrawingUi({ art: { pattern: e.target.value } });
+  });
+  $("rngBrightness").addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 1);
+    $("txtBrightness").textContent = v.toFixed(2);
+    state.lastLocalEditAt.set("rngBrightness", Date.now());
+    queueSettingsPatch({ art: { brightness: v } });
+  });
+  $("rngSpeed").addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 5);
+    $("txtSpeed").textContent = v.toFixed(2);
+    state.lastLocalEditAt.set("rngSpeed", Date.now());
+    queueSettingsPatch({ art: { speed: v } });
+  });
+  $("numFps").addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 1, 120);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numFps", Date.now());
+    queueSettingsPatch({ stream: { fps: v } });
+  });
+  $("selAutoFps").addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selAutoFps", Date.now());
+    const on = e.target.value === "true";
+    queueSettingsPatch({ stream: { auto_fps: on } }, { immediate: true });
+  });
+  $("numMaxFps").addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 1, 120);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numMaxFps", Date.now());
+    queueSettingsPatch({ stream: { max_fps: v } }, { immediate: true });
+  });
+  $("selAutoLearn").addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selAutoLearn", Date.now());
+    const on = e.target.value === "true";
+    queueSettingsPatch({ stream: { auto_learn: on } }, { immediate: true });
+  });
+  $("btnResetLearned").addEventListener("click", async () => {
+    try {
+      await apiPost("/api/perf/reset");
+      // Refresh settings so learned cap display updates.
+      const s = await apiGet("/api/settings");
+      state.lastSettings = s;
+      applySettingsToUI(s);
+    } catch (e) {
+      console.error(e);
+    }
+  });
+  $("selMatrixPreset").addEventListener("change", (e) => {
+    // Backend uses preset to set width/height.
+    state.lastLocalEditAt.set("selMatrixPreset", Date.now());
+    queueSettingsPatch({ matrix: { preset: e.target.value } });
+    clearCanvas();
+  });
+  $("selLedShape").addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selLedShape", Date.now());
+    queueSettingsPatch({ simulator: { led_shape: e.target.value } });
+  });
+  $("rngLedSpacing").addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 10);
+    $("txtLedSpacing").textContent = String(v);
+    state.lastLocalEditAt.set("rngLedSpacing", Date.now());
+    queueSettingsPatch({ simulator: { led_spacing: v } });
+  });
+  $("rngGlow").addEventListener("input", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 1);
+    $("txtGlow").textContent = v.toFixed(2);
+    state.lastLocalEditAt.set("rngGlow", Date.now());
+    queueSettingsPatch({ simulator: { glow: v } });
+  });
+
+  // Living drawing controls
+  const fileUpload = $("fileUpload");
+  if (fileUpload) {
+    fileUpload.addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try {
+        const uploaded = await apiUpload("/api/images/upload", f, {
+          label: ($("inpUploadLabel")?.value || "").trim(),
+        });
+        await refreshDrawingList(uploaded && uploaded.id ? uploaded.id : null);
+        if ($("inpUploadLabel")) $("inpUploadLabel").value = "";
+      } catch (err) {
+        console.error(err);
+      } finally {
+        e.target.value = "";
+      }
+    });
+  }
+
+  const btnUse = $("btnUseLivingDrawing");
+  if (btnUse) {
+    btnUse.addEventListener("click", async () => {
+      const drawingId = $("selDrawing")?.value || null;
+      const lineColor = $("clrLine")?.value || "#b8d7ff";
+      const drawPps = Number($("numDrawPps")?.value || 250);
+      const hold = Number($("numHold")?.value || 4);
+      const erase = Number($("numErasePps")?.value || 800);
+      queueSettingsPatch(
+        {
+          art: {
+            pattern: "living_drawing",
+            drawing_id: drawingId,
+            line_color: lineColor,
+            draw_pps: drawPps,
+            hold_seconds: hold,
+            erase_pps: erase,
+          },
+        },
+        { immediate: true }
+      );
+    });
+  }
+
+  $("selDrawing")?.addEventListener("change", () => syncRenameInputFromSelection());
+
+  const btnDelAi = $("btnDeleteAiToolpath");
+  if (btnDelAi) {
+    btnDelAi.addEventListener("click", async () => {
+      const id = $("selDrawing")?.value || "";
+      const status = $("txtRefineStatus");
+      if (!id) {
+        window.alert("Select an image in the library first.");
+        return;
+      }
+      if (
+        !window.confirm(
+          "Remove the saved ChatGPT toolpath for this upload? The image stays; playback will use the automatic edge trace."
+        )
+      ) {
+        return;
+      }
+      try {
+        const out = await apiDelete(`/api/images/${encodeURIComponent(id)}/toolpath`);
+        if (status) {
+          status.textContent = out.removed ? "AI toolpath removed." : "There was no AI toolpath to remove.";
+        }
+        await refreshDrawingList(id);
+      } catch (err) {
+        console.error(err);
+        window.alert(String(err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  const btnDelImg = $("btnDeleteImage");
+  if (btnDelImg) {
+    btnDelImg.addEventListener("click", async () => {
+      const id = $("selDrawing")?.value || "";
+      const status = $("txtRefineStatus");
+      if (!id) {
+        window.alert("Select an image in the library first.");
+        return;
+      }
+      const lab =
+        ($("selDrawing").selectedOptions && $("selDrawing").selectedOptions[0]?.dataset.displayLabel) || id;
+      if (
+        !window.confirm(
+          `Permanently delete “${lab}”? This removes the file and any ChatGPT path. This cannot be undone.`
+        )
+      ) {
+        return;
+      }
+      try {
+        const out = await apiDelete(`/api/images/${encodeURIComponent(id)}`);
+        if (out.settings) {
+          state.lastSettings = out.settings;
+          applySettingsToUI(out.settings);
+        }
+        if (status) status.textContent = "Upload deleted.";
+        await refreshDrawingList(null);
+      } catch (err) {
+        console.error(err);
+        window.alert(String(err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  const btnRename = $("btnRenameDrawing");
+  if (btnRename) {
+    btnRename.addEventListener("click", async () => {
+      const id = $("selDrawing")?.value || "";
+      const nv = ($("inpRenameDrawing")?.value || "").trim();
+      if (!id) {
+        window.alert("Select an image in the library first.");
+        return;
+      }
+      if (!nv) {
+        window.alert("Enter a new display name.");
+        return;
+      }
+      try {
+        await apiPatch(`/api/images/${encodeURIComponent(id)}`, { label: nv });
+        if ($("inpRenameDrawing")) $("inpRenameDrawing").value = "";
+        await refreshDrawingList(id);
+      } catch (err) {
+        console.error(err);
+        window.alert(String(err && err.message ? err.message : err));
+      }
+    });
+  }
+
+  const btnRefine = $("btnRefineToolpath");
+  if (btnRefine) {
+    btnRefine.addEventListener("click", async () => {
+      const drawingId = $("selDrawing")?.value || "";
+      const status = $("txtRefineStatus");
+      if (!drawingId) {
+        if (status) status.textContent = "Select an uploaded drawing first.";
+        return;
+      }
+      if (status) status.textContent = "Calling ChatGPT… (may take ~30–120s)";
+      btnRefine.disabled = true;
+      try {
+        const out = await apiPostDetailed(`/api/images/${encodeURIComponent(drawingId)}/refine-toolpath`, {});
+        if (status) status.textContent = `Saved AI toolpath (${out.points} points).`;
+        await refreshDrawingList(drawingId);
+      } catch (e) {
+        console.error(e);
+        if (status) status.textContent = String(e && e.message ? e.message : e);
+      } finally {
+        btnRefine.disabled = false;
+      }
+    });
+  }
+}
+
+async function loadInitialData() {
+  const patterns = await apiGet("/api/patterns");
+  state.patterns = patterns.patterns || [];
+  const sel = $("selPattern");
+  sel.innerHTML = "";
+  for (const p of state.patterns) {
+    const opt = document.createElement("option");
+    opt.value = p.name;
+    opt.textContent = p.display_name;
+    sel.appendChild(opt);
+  }
+
+  const settings = await apiGet("/api/settings");
+  state.lastSettings = settings;
+  applySettingsToUI(settings);
+
+  await refreshDrawingList();
+}
+
+async function refreshDrawingList(selectedId) {
+  const sel = $("selDrawing");
+  if (!sel) return;
+  const list = await apiGet("/api/images");
+  const imgs = list.images || [];
+  sel.innerHTML = "";
+
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = imgs.length ? "Select…" : "No uploads yet";
+  sel.appendChild(opt0);
+
+  for (const img of imgs) {
+    const opt = document.createElement("option");
+    opt.value = img.id;
+    const tag = img.has_ai_toolpath ? " · AI" : "";
+    const lab = (img.label || "").trim() || img.id;
+    opt.textContent = `${lab}${tag}`;
+    opt.title = `${img.filename || ""} · ${img.id}`;
+    opt.dataset.displayLabel = lab;
+    sel.appendChild(opt);
+  }
+
+  if (selectedId) sel.value = selectedId;
+  syncRenameInputFromSelection();
+}
+
+function syncRenameInputFromSelection() {
+  const sel = $("selDrawing");
+  const inp = $("inpRenameDrawing");
+  if (!sel || !inp) return;
+  const opt = sel.selectedOptions && sel.selectedOptions[0];
+  if (!opt || !opt.value) {
+    inp.value = "";
+    return;
+  }
+  inp.value = opt.dataset.displayLabel || "";
+}
+
+async function main() {
+  initCanvas();
+  clearCanvas();
+  wireUi();
+  try {
+    await loadInitialData();
+  } catch (e) {
+    console.error(e);
+  }
+  connectWs();
+}
+
+main();
+

@@ -1,0 +1,29 @@
+matrix:
+  width: 64
+  height: 64
+  preset: null
+stream:
+  fps: 10
+  auto_fps: true
+  max_fps: 20
+  auto_learn: true
+art:
+  pattern: living_drawing
+  speed: 3.7
+  brightness: 0.65
+  drawing_id: null
+  draw_pps: 20.0
+  hold_seconds: 4.0
+  erase_pps: 200.0
+  line_color: "#3eb70b"
+simulator:
+  led_shape: circle
+  led_spacing: 2
+  glow: 0.91
+output:
+  mode: simulator
+integrations:
+  openai:
+    api_key: ""
+    model: ""
+

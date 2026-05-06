@@ -1,0 +1,28 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+backend/.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Runtime data (uploads, learned perf, generated toolpaths)
+data/
+
+# Local machine config (may include secrets)
+config/settings.yaml
+config/perf.yaml
+
