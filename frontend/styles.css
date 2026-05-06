@@ -36,27 +36,44 @@ html, body {
   top: 0;
   z-index: 80;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  gap: 10px 12px;
+  padding: 10px clamp(12px, 3vw, 16px);
   border-bottom: 1px solid var(--border);
   background: rgba(0,0,0,0.25);
   backdrop-filter: blur(10px);
 }
 
+.brand {
+  min-width: 0;
+  flex: 1 1 min(100%, 240px);
+}
+
 .brandTitle { font-weight: 650; letter-spacing: 0.2px; }
 .brandSub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
-.topBarActions { display: flex; gap: 10px; align-items: center; }
+.topBarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  flex: 1 1 auto;
+}
 
 .commitBar {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid var(--border);
   background: rgba(0,0,0,0.25);
   border-radius: 999px;
+  max-width: 100%;
 }
 
 .commitBar[hidden] {
@@ -71,6 +88,8 @@ html, body {
   border-radius: 10px;
   cursor: pointer;
   transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+  max-width: 100%;
+  text-align: center;
 }
 
 .btn:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
@@ -138,11 +157,33 @@ html, body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr minmax(300px, 400px);
+  grid-template-columns: 1fr minmax(min(320px, 100%), 400px);
   grid-template-rows: minmax(0, 1fr);
   gap: 12px;
-  padding: 8px 14px 14px;
+  padding: clamp(8px, 2vw, 14px) clamp(10px, 3vw, 16px) clamp(12px, 3vw, 18px);
   align-items: stretch;
+}
+
+/* Single-column pages (Settings, Gallery): drop inline grid overrides */
+.main.main--fullwidth {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.pageSheet {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
 }
 
 .canvasPanel {
@@ -213,9 +254,24 @@ canvas {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
+.modalHeader {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.modalHeader .groupTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .modalFooter {
   border-bottom: none;
   border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.modalFooter .muted {
+  flex: 1 1 min(100%, 280px);
+  min-width: 0;
 }
 .modalBody {
   padding: 12px;
@@ -242,8 +298,8 @@ canvas {
 
 .statusBar {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 118px), 1fr));
+  gap: 8px;
 }
 
 .statusItem {
@@ -274,14 +330,21 @@ canvas {
   border: 1px solid var(--border);
   background: rgba(0,0,0,0.22);
   border-radius: 18px;
-  padding: 14px;
+  padding: clamp(10px, 2vw, 14px);
   box-shadow: 0 18px 60px var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  align-self: stretch;
+}
+
+.playPanel > .settingsGroup {
+  min-width: 0;
 }
 
 .settingsScroll {
@@ -322,6 +385,13 @@ canvas {
   background: var(--panel);
   border-radius: 16px;
   padding: 12px;
+  min-width: 0;
+}
+
+/* Nested group (e.g. Photo inside Now playing) — avoid double-wide chrome feeling */
+.settingsGroup .settingsGroup {
+  padding: 10px;
+  background: rgba(0,0,0,0.12);
 }
 
 details.settingsFold {
@@ -409,12 +479,12 @@ details.settingsFold[open] > summary {
 
 .fieldGrid2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-@media (max-width: 420px) {
-  .fieldGrid2 { grid-template-columns: 1fr; }
+@media (max-width: 720px) {
+  .fieldGrid2 { grid-template-columns: minmax(0, 1fr); }
 }
 
 .groupTitle {
@@ -428,6 +498,7 @@ details.settingsFold[open] > summary {
   display: grid;
   gap: 6px;
   margin-top: 10px;
+  min-width: 0;
 }
 .field:first-of-type { margin-top: 0; }
 
@@ -442,6 +513,19 @@ details.settingsFold[open] > summary {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  width: 100%;
+}
+
+.btnRow-fill {
+  flex: 1 1 min(100%, 12rem);
+  min-width: 0;
+}
+
+.uiEllipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 details.settingsSub {
@@ -513,6 +597,30 @@ input[type="text"], input[type="password"], input[type="number"], select {
   padding: 10px 10px;
   border-radius: 12px;
   outline: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.02);
+  color: var(--muted);
+}
+
+input[type="color"] {
+  width: 100%;
+  max-width: 140px;
+  height: 42px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
 }
 
 /* Dropdown menus are native UI. On Windows/Chrome, leaving defaults can produce white-on-white
@@ -526,9 +634,10 @@ input[type="range"] { width: 100%; }
 
 .rangeRow {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
 .mono {
@@ -537,7 +646,26 @@ input[type="range"] { width: 100%; }
   color: rgba(255,255,255,0.80);
 }
 
-.muted { color: var(--muted); font-size: 12px; }
+.rangeRow .mono {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.nowPlayingLine {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .badge {
   display: inline-flex;
@@ -551,6 +679,13 @@ input[type="range"] { width: 100%; }
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
+}
+
+.btnRow .badge {
+  white-space: normal;
+  max-width: 100%;
+  text-align: center;
+  justify-content: center;
 }
 
 .badge.good {
@@ -576,8 +711,9 @@ input[type="range"] { width: 100%; }
   width: 100%;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 14px;
+  min-width: 0;
 }
 
 .galleryCard {
@@ -591,11 +727,16 @@ input[type="range"] { width: 100%; }
 }
 
 /* Gallery form controls: avoid styling <select> like .btn (hurts native dropdown / hit-testing). */
+.galleryCard .btnRow {
+  width: 100%;
+}
+
 .gallerySelect {
-  min-width: 11rem;
+  flex: 1 1 min(100%, 12rem);
+  min-width: min(12rem, 100%);
   max-width: 100%;
+  width: auto;
   cursor: pointer;
-  flex-shrink: 0;
 }
 
 .galleryColorInput {
@@ -657,11 +798,23 @@ input[type="range"] { width: 100%; }
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 10px;
-  align-items: center;
+  align-items: start;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(0,0,0,0.12);
   border-radius: 14px;
   padding: 8px;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .variantRow {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+  }
+  .variantRow .variantInfo {
+    width: 100%;
+  }
 }
 
 .variantCanvas {
@@ -686,12 +839,17 @@ input[type="range"] { width: 100%; }
 
 
 @media (max-width: 1020px) {
-  .main {
-    grid-template-columns: 1fr;
+  .main:not(.main--fullwidth) {
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
   .settingsPanel { order: -1; }
-  .canvasPanel { min-height: min(52vh, 560px); }
-  .statusBar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .canvasPanel { min-height: min(48vh, 520px); }
+}
+
+@media (max-width: 1020px) {
+  .main--sim .playPanel {
+    max-height: min(52vh, 560px);
+  }
 }
 

@@ -22,7 +22,7 @@
         </div>
       </header>
 
-      <main class="main">
+      <main class="main main--sim">
         <section class="canvasPanel">
           <div class="canvasWrap">
             <canvas id="matrixCanvas" width="640" height="640"></canvas>
@@ -66,7 +66,7 @@
 
             <div class="muted" style="margin-top:10px">
               <span class="label" style="display:block; font-size:11px; color: var(--muted);">Current</span>
-              <span id="txtNowPlaying" class="value" style="display:block; font-size:13px; margin-top:4px">—</span>
+              <span id="txtNowPlaying" class="value nowPlayingLine" style="display:block; font-size:13px; margin-top:4px">—</span>
             </div>
 
             <label class="field" style="margin-top:12px">
@@ -106,7 +106,7 @@
               <div class="btnRow" style="align-items:center; margin-top:10px">
                 <button id="btnUploadSave" class="btn primary" type="button" disabled>Save upload</button>
                 <button id="btnUploadClear" class="btn" type="button" disabled>Clear</button>
-                <div id="txtUploadPicked" class="muted" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></div>
+                <div id="txtUploadPicked" class="muted btnRow-fill uiEllipsis"></div>
               </div>
               <div id="uploadProgressWrap" class="progressWrap" hidden>
                 <div class="progressTop">
@@ -121,6 +121,13 @@
                 <span class="fieldLabel">Library</span>
                 <select id="selDrawing"></select>
               </label>
+              <div class="muted" style="margin-top:6px;font-size:11px">
+                Previous / Next step through photos that have a <strong>vectorized</strong> preset for the current matrix size (same order as Pi album).
+              </div>
+              <div class="btnRow" style="margin-top:8px;flex-wrap:wrap">
+                <button id="btnAlbumPrev" class="btn" type="button" title="Previous in album">Previous</button>
+                <button id="btnAlbumNext" class="btn" type="button" title="Next in album">Next</button>
+              </div>
               <div class="btnRow">
                 <button id="btnUseLivingDrawing" class="btn primary" type="button">Show selected photo</button>
               </div>

@@ -344,14 +344,29 @@ async function main() {
   if (fileEl) {
     fileEl.addEventListener("change", (e) => {
       const f = e.target.files && e.target.files[0];
-      if (!f) return;
+      const wrap = $("uploadPreviewWrap");
+      const img = $("imgUploadPreview");
+      if (!f) {
+        if (galleryState.pendingUpload && galleryState.pendingUpload.previewUrl) {
+          try { URL.revokeObjectURL(galleryState.pendingUpload.previewUrl); } catch (_) {}
+        }
+        galleryState.pendingUpload = null;
+        if (img) img.removeAttribute("src");
+        if (wrap) wrap.hidden = true;
+        if ($("txtUploadPicked")) $("txtUploadPicked").textContent = "";
+        setUploadUiBusy(false);
+        return;
+      }
       if (galleryState.pendingUpload && galleryState.pendingUpload.previewUrl) {
         try { URL.revokeObjectURL(galleryState.pendingUpload.previewUrl); } catch (_) {}
       }
       const url = URL.createObjectURL(f);
       galleryState.pendingUpload = { file: f, name: f.name || "selected file", previewUrl: url };
-      const img = $("imgUploadPreview");
-      if (img) img.src = url;
+      if (img) {
+        img.alt = galleryState.pendingUpload.name || "Selected file preview";
+        img.src = url;
+      }
+      if (wrap) wrap.hidden = false;
       const picked = $("txtUploadPicked");
       if (picked) picked.textContent = galleryState.pendingUpload.name;
       setUploadUiBusy(false);
@@ -364,7 +379,10 @@ async function main() {
     }
     galleryState.pendingUpload = null;
     if ($("fileUpload")) $("fileUpload").value = "";
-    if ($("imgUploadPreview")) $("imgUploadPreview").src = "";
+    const img = $("imgUploadPreview");
+    if (img) img.removeAttribute("src");
+    const wrap = $("uploadPreviewWrap");
+    if (wrap) wrap.hidden = true;
     if ($("txtUploadPicked")) $("txtUploadPicked").textContent = "";
     showUploadProgress(false);
     setUploadUiBusy(false);
@@ -452,7 +470,9 @@ async function main() {
 
       // If AI line-art exists, prefer vectorizing/previewing that derived image.
       const kids = children.get(img.id) || [];
-      const aiKids = kids.filter((k) => (k.kind || "") === "ai_lineart");
+      const aiKids = kids
+        .filter((k) => (k.kind || "") === "ai_lineart")
+        .sort((a, b) => String(a.id).localeCompare(String(b.id)));
       const vectorSource = aiKids.length ? aiKids[0] : img;
 
       // Rename / delete controls

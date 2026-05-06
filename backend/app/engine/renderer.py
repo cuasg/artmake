@@ -82,6 +82,7 @@ class FrameRenderer:
         # Per-image line color: inherit global settings vs fixed/random RGB for this drawing_id load.
         self._drawing_use_global_line_color: bool = True
         self._drawing_line_rgb: tuple[int, int, int] | None = None
+        self._drawing_line_spec: str | None = None
 
     def reset(self) -> None:
         self.state.reset()
@@ -89,6 +90,7 @@ class FrameRenderer:
         self._drawing_cached_id = None
         self._drawing_use_global_line_color = True
         self._drawing_line_rgb = None
+        self._drawing_line_spec = None
         self._canvas_rgb = None
         self._fade_level = None
         self._fade_in_active = []
@@ -180,6 +182,31 @@ class FrameRenderer:
             self._fade_pending_clear = set()
 
         drawing_id = settings.art.drawing_id
+
+        # Keep per-image line color in sync with Gallery edits (catalog.json) even while running.
+        if drawing_id and self._image_library:
+            spec = self._image_library.line_art_display_color_spec(drawing_id)
+            canon = (spec or "").strip()
+            if canon == "":
+                canon = None
+            if canon != self._drawing_line_spec:
+                self._drawing_line_spec = canon
+                low = (canon or "").lower()
+                if canon is None:
+                    self._drawing_use_global_line_color = True
+                    self._drawing_line_rgb = None
+                elif low == "random_bright":
+                    self._drawing_use_global_line_color = False
+                    # Pick once per spec change (or drawing change) for stability.
+                    self._drawing_line_rgb = _random_bright_rgb()
+                else:
+                    self._drawing_use_global_line_color = False
+                    self._drawing_line_rgb = _hex_to_rgb(canon)
+        else:
+            # No drawing selected: fall back to global.
+            self._drawing_line_spec = None
+            self._drawing_use_global_line_color = True
+            self._drawing_line_rgb = None
         if drawing_id and drawing_id != self._drawing_cached_id and self._image_library:
             entry = self._image_library.get(drawing_id)
             if entry:

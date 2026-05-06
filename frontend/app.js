@@ -37,6 +37,8 @@ const state = {
   inFlightPatch: null,
   inFlightSince: 0,
   pendingUpload: null, // { file: File, name: string }
+  /** Latest `/api/images` payload for album stepping (prev/next). */
+  imageLibraryList: null,
 };
 
 function setUploadUiBusy(on) {
@@ -209,6 +211,103 @@ function formatMatrix(settings) {
   return `${w}×${h}`;
 }
 
+function hasVectorizedPreset(imgs, imageId, w, h) {
+  const ww = Number(w);
+  const hh = Number(h);
+  const img = imgs.find((i) => i && i.id === imageId);
+  if (!img || !Array.isArray(img.toolpaths)) return false;
+  return img.toolpaths.some(
+    (tp) =>
+      tp &&
+      typeof tp === "object" &&
+      Number(tp.w) === ww &&
+      Number(tp.h) === hh &&
+      String(tp.source || "").trim().toLowerCase() === "vectorized"
+  );
+}
+
+/**
+ * Same ordering/eligibility as backend `album_candidates`: one slot per root gallery card,
+ * preferring AI line-art child paths when that child has vectorized (w,h).
+ */
+function albumCandidateIds(imgs, w, h) {
+  const ww = Number(w);
+  const hh = Number(h);
+  if (!Array.isArray(imgs) || !ww || !hh) return [];
+
+  const roots = imgs.filter((it) => it && !it.parent_id).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  const out = [];
+  for (const root of roots) {
+    const aiKids = imgs
+      .filter((e) => e && e.parent_id === root.id && String(e.kind || "").trim().toLowerCase() === "ai_lineart")
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    let picked = null;
+    if (aiKids.length && hasVectorizedPreset(imgs, aiKids[0].id, ww, hh)) picked = aiKids[0].id;
+    else if (hasVectorizedPreset(imgs, root.id, ww, hh)) picked = root.id;
+    if (picked) out.push(picked);
+  }
+  return out;
+}
+
+function stepAlbumId(ids, currentId, delta) {
+  if (!ids.length) return null;
+  const cur = currentId && String(currentId).trim() ? String(currentId) : "";
+  const hasCur = cur && ids.includes(cur);
+  if (!hasCur) {
+    if (delta >= 0) return ids[0];
+    return ids[ids.length - 1];
+  }
+  const i = ids.indexOf(cur);
+  const j = (((i + delta) % ids.length) + ids.length) % ids.length;
+  return ids[j];
+}
+
+function updateAlbumNavButtons(settings) {
+  const prev = $("btnAlbumPrev");
+  const next = $("btnAlbumNext");
+  if (!prev && !next) return;
+
+  const s = settings || state.lastSettings;
+  const living = s?.art?.pattern === "living_drawing";
+  const w = s?.matrix?.width;
+  const h = s?.matrix?.height;
+  const imgs = state.imageLibraryList || [];
+  const ids = albumCandidateIds(imgs, w, h);
+  const disabled = !living || !ids.length;
+  if (prev) prev.disabled = disabled;
+  if (next) next.disabled = disabled;
+}
+
+async function navigateAlbum(delta) {
+  const settings = state.lastSettings;
+  if (!settings || settings.art?.pattern !== "living_drawing") return;
+  const w = settings.matrix?.width;
+  const h = settings.matrix?.height;
+  if (!w || !h) return;
+
+  try {
+    await refreshDrawingList();
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+
+  const imgs = state.imageLibraryList || [];
+  const ids = albumCandidateIds(imgs, w, h);
+  if (!ids.length) return;
+
+  const nextId = stepAlbumId(ids, settings.art?.drawing_id, delta);
+  if (!nextId) return;
+
+  stageOrSendSettingsPatch({ art: { pattern: "living_drawing", drawing_id: nextId } }, { immediate: true });
+
+  const sel = $("selDrawing");
+  if (sel && ids.includes(nextId)) sel.value = nextId;
+  syncRenameInputFromSelection();
+  updateAlbumNavButtons(state.lastSettings);
+}
+
 function syncPhotoLineDrawingUi(settings) {
   const hint = $("photoPatternHint");
   const pattern = settings?.art?.pattern ?? ($("selPattern")?.value || "");
@@ -353,6 +452,7 @@ function applySettingsToUI(settings) {
   }
 
   syncPhotoLineDrawingUi(settings);
+  updateAlbumNavButtons(settings);
 }
 
 function effectiveOverlayPatch() {
@@ -943,6 +1043,13 @@ function wireUi() {
     }
   });
 
+  $("btnAlbumPrev")?.addEventListener("click", () => {
+    void navigateAlbum(-1);
+  });
+  $("btnAlbumNext")?.addEventListener("click", () => {
+    void navigateAlbum(1);
+  });
+
   const btnUse = $("btnUseLivingDrawing");
   if (btnUse) {
     btnUse.addEventListener("click", async () => {
@@ -1216,6 +1323,7 @@ async function refreshDrawingList(selectedId) {
   if (!sel) return;
   const list = await apiGet("/api/images");
   const imgs = list.images || [];
+  state.imageLibraryList = imgs;
   sel.innerHTML = "";
 
   const opt0 = document.createElement("option");
@@ -1242,6 +1350,7 @@ async function refreshDrawingList(selectedId) {
   if (desired) sel.value = desired;
   if (!sel.value) sel.selectedIndex = 0;
   syncRenameInputFromSelection();
+  updateAlbumNavButtons(state.lastSettings);
 }
 
 function syncRenameInputFromSelection() {
