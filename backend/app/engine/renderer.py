@@ -14,7 +14,7 @@ from app.engine.line_draw import (
     image_to_points,
     order_points_nearest,
 )
-from app.engine.path_stitch import normalize_ai_toolpath
+from app.engine.path_stitch import normalize_ai_strokes, normalize_ai_toolpath
 from app.image_library import ImageLibrary
 
 
@@ -84,7 +84,9 @@ class FrameRenderer:
             return
         self._drawing_cached_id = None
         self.drawing.program = None
-        self.drawing.idx = 0
+        self.drawing.stroke_idx = 0
+        self.drawing.point_idx = 0
+        self.drawing.flat_idx = 0
         self.drawing.mode = "idle"
 
     def render_rgb_bytes(self, settings: RuntimeSettings) -> tuple[int, int, bytes]:
@@ -144,9 +146,11 @@ class FrameRenderer:
         if drawing_id and drawing_id != self._drawing_cached_id and self._image_library:
             entry = self._image_library.get(drawing_id)
             if entry:
-                expanded = self._load_drawing_program_points(entry.path, drawing_id, w, h)
-                self.drawing.program = DrawingProgram(points=expanded, width=w, height=h)
-                self.drawing.idx = 0
+                program = self._load_drawing_program(entry.path, drawing_id, w, h, source=settings.art.toolpath_source)
+                self.drawing.program = program
+                self.drawing.stroke_idx = 0
+                self.drawing.point_idx = 0
+                self.drawing.flat_idx = 0
                 self.drawing.mode = "draw"
                 self.drawing.mode_started_at_s = time.time()
                 self.drawing.hold_s = float(settings.art.hold_seconds)
@@ -176,16 +180,26 @@ class FrameRenderer:
         if self.drawing.mode == "draw":
             step = int(self.drawing.draw_pps * (1.0 / max(1.0, settings.stream.fps)))
             step = max(1, step)
-            end = min(len(self.drawing.program.points), self.drawing.idx + step)
-            for i in range(self.drawing.idx, end):
-                x, y = self.drawing.program.points[i]
+
+            remaining = step
+            while remaining > 0 and self.drawing.program and self.drawing.stroke_idx < len(self.drawing.program.strokes):
+                stroke = self.drawing.program.strokes[self.drawing.stroke_idx]
+                if self.drawing.point_idx >= len(stroke):
+                    self.drawing.stroke_idx += 1
+                    self.drawing.point_idx = 0
+                    continue
+                x, y = stroke[self.drawing.point_idx]
+                self.drawing.point_idx += 1
+                self.drawing.flat_idx = min(len(self.drawing.program.flat_points), self.drawing.flat_idx + 1)
+                remaining -= 1
                 if 0 <= x < w and 0 <= y < h:
                     j = (y * w + x) * 3
                     self._canvas_rgb[j] = r
                     self._canvas_rgb[j + 1] = g
                     self._canvas_rgb[j + 2] = b
-            self.drawing.idx = end
-            if self.drawing.idx >= len(self.drawing.program.points) - 1:
+
+            # Done drawing all strokes
+            if self.drawing.program and self.drawing.stroke_idx >= len(self.drawing.program.strokes):
                 self.drawing.mode = "hold"
                 self.drawing.mode_started_at_s = now
 
@@ -197,43 +211,78 @@ class FrameRenderer:
         elif self.drawing.mode == "erase":
             step = int(self.drawing.erase_pps * (1.0 / max(1.0, settings.stream.fps)))
             step = max(1, step)
-            # erase from end backwards
-            start_idx = max(0, self.drawing.idx - step)
-            for i in range(start_idx, self.drawing.idx):
-                x, y = self.drawing.program.points[i]
+            if not self.drawing.program:
+                return w, h, bytes(self._canvas_rgb)
+            # erase from end backwards using flattened points
+            start_idx = max(0, self.drawing.flat_idx - step)
+            for i in range(start_idx, self.drawing.flat_idx):
+                x, y = self.drawing.program.flat_points[i]
                 if 0 <= x < w and 0 <= y < h:
                     j = (y * w + x) * 3
                     self._canvas_rgb[j] = 0
                     self._canvas_rgb[j + 1] = 0
                     self._canvas_rgb[j + 2] = 0
-            self.drawing.idx = start_idx
-            if self.drawing.idx <= 0:
+            self.drawing.flat_idx = start_idx
+            if self.drawing.flat_idx <= 0:
                 # loop: redraw same image for now
                 self.drawing.mode = "draw"
                 self.drawing.mode_started_at_s = now
+                self.drawing.stroke_idx = 0
+                self.drawing.point_idx = 0
 
         return w, h, bytes(self._canvas_rgb)
 
-    def _load_drawing_program_points(self, image_path: Path, image_id: str, w: int, h: int) -> List[Tuple[int, int]]:
+    def _load_drawing_program(self, image_path: Path, image_id: str, w: int, h: int, source: str = "auto") -> DrawingProgram:
         lib = self._image_library
-        stored: Dict[str, Any] | None = lib.load_toolpath(image_id) if lib else None
+        source = (source or "auto").strip().lower()
+        preferred = []
+        if source == "ai":
+            preferred = ["ai"]
+        elif source == "vectorized":
+            preferred = ["vectorized"]
+        elif source == "edge":
+            preferred = ["edge"]
+        else:
+            preferred = ["ai", "vectorized", "edge"]
+
+        stored: Dict[str, Any] | None = None
+        if lib:
+            for src in preferred:
+                stored = lib.load_toolpath(image_id, w, h, src)
+                if stored:
+                    break
         if isinstance(stored, dict):
+            raw_strokes = stored.get("expanded_strokes")
+            if isinstance(raw_strokes, list) and raw_strokes:
+                strokes = self._strokes_from_json(raw_strokes)
+                if strokes:
+                    flat = [p for s in strokes for p in s]
+                    return DrawingProgram(strokes=strokes, flat_points=flat, width=w, height=h)
             raw_pts = stored.get("expanded_points")
             if isinstance(raw_pts, list) and raw_pts:
                 pts = self._points_from_json_list(raw_pts)
                 if pts:
-                    return pts
+                    return DrawingProgram(strokes=[pts], flat_points=pts, width=w, height=h)
             raw_obj = stored.get("raw")
             if isinstance(raw_obj, dict):
+                raw_s = raw_obj.get("strokes")
+                if isinstance(raw_s, list) and raw_s:
+                    strokes2 = self._strokes_from_raw(raw_s)
+                    if strokes2:
+                        norm = normalize_ai_strokes(strokes2, w, h)
+                        flat = [p for s in norm for p in s]
+                        return DrawingProgram(strokes=norm, flat_points=flat, width=w, height=h)
                 raw_path = raw_obj.get("path")
                 if isinstance(raw_path, list) and raw_path:
                     pts2 = self._points_from_ai_path(raw_path)
                     if pts2:
-                        return normalize_ai_toolpath(pts2, w, h)
+                        norm = normalize_ai_toolpath(pts2, w, h)
+                        return DrawingProgram(strokes=[norm], flat_points=norm, width=w, height=h)
 
         pts = image_to_points(image_path, w, h, threshold=0.22)
         ordered = order_points_nearest(pts, max_len=12000)
-        return expand_path(ordered)
+        expanded = expand_path(ordered)
+        return DrawingProgram(strokes=[expanded], flat_points=expanded, width=w, height=h)
 
     def _points_from_json_list(self, raw_pts: List[Any]) -> List[Tuple[int, int]]:
         out: List[Tuple[int, int]] = []
@@ -249,6 +298,29 @@ class FrameRenderer:
             if not isinstance(pt, (list, tuple)) or len(pt) != 2:
                 continue
             out.append((int(pt[0]), int(pt[1])))
+        return out
+
+    def _strokes_from_json(self, raw: List[Any]) -> List[List[Tuple[int, int]]]:
+        out: List[List[Tuple[int, int]]] = []
+        for s in raw:
+            if not isinstance(s, list):
+                continue
+            pts = self._points_from_json_list(s)
+            if len(pts) >= 2:
+                out.append(pts)
+        return out
+
+    def _strokes_from_raw(self, raw_strokes: List[Any]) -> List[List[Tuple[int, int]]]:
+        out: List[List[Tuple[int, int]]] = []
+        for s in raw_strokes:
+            if not isinstance(s, dict):
+                continue
+            pts = s.get("points")
+            if not isinstance(pts, list):
+                continue
+            p2 = self._points_from_ai_path(pts)
+            if len(p2) >= 2:
+                out.append(p2)
         return out
 
 

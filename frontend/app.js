@@ -121,7 +121,6 @@ function formatMatrix(settings) {
 
 function syncPhotoLineDrawingUi(settings) {
   const hint = $("photoPatternHint");
-  const fold = $("foldLivingDrawing");
   const pattern = settings?.art?.pattern ?? ($("selPattern")?.value || "");
   const isPhoto = pattern === "living_drawing";
   if (hint) {
@@ -134,7 +133,11 @@ function syncPhotoLineDrawingUi(settings) {
       hint.classList.add("isVisible");
     }
   }
-  if (fold && isPhoto) fold.open = true;
+
+  const photoControls = $("photoControls");
+  if (photoControls) {
+    photoControls.style.display = isPhoto ? "" : "none";
+  }
 }
 
 function applySettingsToUI(settings) {
@@ -166,8 +169,31 @@ function applySettingsToUI(settings) {
   setText("statusFps", fpsLabel);
   setText("statusPattern", String(settings?.art?.pattern ?? "—"));
 
+  // Sidebar “Now playing”
+  const nowPlaying = $("txtNowPlaying");
+  if (nowPlaying) {
+    const pat = String(settings?.art?.pattern ?? "—");
+    const patInfo = Array.isArray(state.patterns) ? state.patterns.find((p) => p && p.name === pat) : null;
+    const patLabel = patInfo?.display_name || pat;
+    let extra = "";
+    if (pat === "living_drawing") {
+      const opt = $("selDrawing")?.selectedOptions && $("selDrawing").selectedOptions[0];
+      const lab = (opt && opt.dataset && opt.dataset.displayLabel) || settings?.art?.drawing_id || "";
+      if (lab) extra = ` · ${lab}`;
+    }
+    nowPlaying.textContent = `${patLabel}${extra}`;
+  }
+
   const oa = settings.integrations?.openai;
   if (oa) {
+    const badge = $("badgeOpenAiKey");
+    if (badge) {
+      const ok = !!oa.api_key_configured;
+      const fp = (oa.api_key_fingerprint || "").toString().trim();
+      badge.textContent = ok ? `Key saved${fp ? ` (${fp})` : ""}` : "Key missing";
+      badge.classList.toggle("good", ok);
+      badge.classList.toggle("bad", !ok);
+    }
     if ($("txtOpenAiKeyHint")) {
       $("txtOpenAiKeyHint").textContent = oa.api_key_configured
         ? "API key is saved locally."
@@ -180,34 +206,35 @@ function applySettingsToUI(settings) {
 
   if (!hasFullShape) return;
 
-  if (!state.uiLocks.has("selPattern") && !recentlyEdited("selPattern")) $("selPattern").value = settings.art.pattern;
-  if (!state.uiLocks.has("rngBrightness") && !recentlyEdited("rngBrightness")) $("rngBrightness").value = String(settings.art.brightness);
-  if (!recentlyEdited("rngBrightness")) $("txtBrightness").textContent = Number(settings.art.brightness).toFixed(2);
-  if (!state.uiLocks.has("rngSpeed") && !recentlyEdited("rngSpeed")) $("rngSpeed").value = String(settings.art.speed);
-  if (!recentlyEdited("rngSpeed")) $("txtSpeed").textContent = Number(settings.art.speed).toFixed(2);
-  if (!state.uiLocks.has("numFps") && !recentlyEdited("numFps")) $("numFps").value = String(settings.stream.fps);
-  if (!state.uiLocks.has("selAutoFps") && !recentlyEdited("selAutoFps")) $("selAutoFps").value = String(!!settings.stream.auto_fps);
-  if (!state.uiLocks.has("numMaxFps") && !recentlyEdited("numMaxFps")) $("numMaxFps").value = String(settings.stream.max_fps);
-  if (!state.uiLocks.has("selAutoLearn") && !recentlyEdited("selAutoLearn")) $("selAutoLearn").value = String(!!settings.stream.auto_learn);
+  if ($("selPattern") && !state.uiLocks.has("selPattern") && !recentlyEdited("selPattern")) $("selPattern").value = settings.art.pattern;
+  if ($("rngBrightness") && !state.uiLocks.has("rngBrightness") && !recentlyEdited("rngBrightness")) $("rngBrightness").value = String(settings.art.brightness);
+  if ($("txtBrightness") && !recentlyEdited("rngBrightness")) $("txtBrightness").textContent = Number(settings.art.brightness).toFixed(2);
+  if ($("rngSpeed") && !state.uiLocks.has("rngSpeed") && !recentlyEdited("rngSpeed")) $("rngSpeed").value = String(settings.art.speed);
+  if ($("txtSpeed") && !recentlyEdited("rngSpeed")) $("txtSpeed").textContent = Number(settings.art.speed).toFixed(2);
+  if ($("numFps") && !state.uiLocks.has("numFps") && !recentlyEdited("numFps")) $("numFps").value = String(settings.stream.fps);
+  if ($("selAutoFps") && !state.uiLocks.has("selAutoFps") && !recentlyEdited("selAutoFps")) $("selAutoFps").value = String(!!settings.stream.auto_fps);
+  if ($("numMaxFps") && !state.uiLocks.has("numMaxFps") && !recentlyEdited("numMaxFps")) $("numMaxFps").value = String(settings.stream.max_fps);
+  if ($("selAutoLearn") && !state.uiLocks.has("selAutoLearn") && !recentlyEdited("selAutoLearn")) $("selAutoLearn").value = String(!!settings.stream.auto_learn);
 
   const preset = `${settings.matrix.width}x${settings.matrix.height}`;
-  if (!state.uiLocks.has("selMatrixPreset") && !recentlyEdited("selMatrixPreset")) $("selMatrixPreset").value = preset;
+  if ($("selMatrixPreset") && !state.uiLocks.has("selMatrixPreset") && !recentlyEdited("selMatrixPreset")) $("selMatrixPreset").value = preset;
 
-  if (!state.uiLocks.has("selLedShape") && !recentlyEdited("selLedShape")) $("selLedShape").value = settings.simulator.led_shape;
-  if (!state.uiLocks.has("rngLedSpacing") && !recentlyEdited("rngLedSpacing")) $("rngLedSpacing").value = String(settings.simulator.led_spacing);
-  if (!recentlyEdited("rngLedSpacing")) $("txtLedSpacing").textContent = String(settings.simulator.led_spacing);
-  if (!state.uiLocks.has("rngGlow") && !recentlyEdited("rngGlow")) $("rngGlow").value = String(settings.simulator.glow);
-  if (!recentlyEdited("rngGlow")) $("txtGlow").textContent = Number(settings.simulator.glow).toFixed(2);
+  if ($("selLedShape") && !state.uiLocks.has("selLedShape") && !recentlyEdited("selLedShape")) $("selLedShape").value = settings.simulator.led_shape;
+  if ($("rngLedSpacing") && !state.uiLocks.has("rngLedSpacing") && !recentlyEdited("rngLedSpacing")) $("rngLedSpacing").value = String(settings.simulator.led_spacing);
+  if ($("txtLedSpacing") && !recentlyEdited("rngLedSpacing")) $("txtLedSpacing").textContent = String(settings.simulator.led_spacing);
+  if ($("rngGlow") && !state.uiLocks.has("rngGlow") && !recentlyEdited("rngGlow")) $("rngGlow").value = String(settings.simulator.glow);
+  if ($("txtGlow") && !recentlyEdited("rngGlow")) $("txtGlow").textContent = Number(settings.simulator.glow).toFixed(2);
 
   state.render.ledShape = settings.simulator.led_shape;
   state.render.ledSpacing = settings.simulator.led_spacing;
   state.render.glow = settings.simulator.glow;
 
   // Living drawing defaults
-  if ($("clrLine")) $("clrLine").value = settings.art.line_color || "#b8d7ff";
-  if ($("numDrawPps")) $("numDrawPps").value = String(settings.art.draw_pps ?? 250);
-  if ($("numHold")) $("numHold").value = String(settings.art.hold_seconds ?? 4);
-  if ($("numErasePps")) $("numErasePps").value = String(settings.art.erase_pps ?? 800);
+  if ($("clrLine") && !state.uiLocks.has("clrLine") && !recentlyEdited("clrLine")) $("clrLine").value = settings.art.line_color || "#b8d7ff";
+  if ($("numDrawPps") && !state.uiLocks.has("numDrawPps") && !recentlyEdited("numDrawPps")) $("numDrawPps").value = String(settings.art.draw_pps ?? 250);
+  if ($("numHold") && !state.uiLocks.has("numHold") && !recentlyEdited("numHold")) $("numHold").value = String(settings.art.hold_seconds ?? 4);
+  if ($("numErasePps") && !state.uiLocks.has("numErasePps") && !recentlyEdited("numErasePps")) $("numErasePps").value = String(settings.art.erase_pps ?? 800);
+  if ($("selToolpathSource") && !state.uiLocks.has("selToolpathSource") && !recentlyEdited("selToolpathSource")) $("selToolpathSource").value = settings.art.toolpath_source || "auto";
 
   syncPhotoLineDrawingUi(settings);
 }
@@ -517,6 +544,7 @@ function connectWs() {
 }
 
 function lockWhileInteracting(id, el) {
+  if (!el) return;
   const lock = () => state.uiLocks.add(id);
   const unlock = () => state.uiLocks.delete(id);
   const markEdit = () => state.lastLocalEditAt.set(id, Date.now());
@@ -535,6 +563,15 @@ function clampNumber(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
+function animateClick(el) {
+  if (!el) return;
+  el.classList.remove("clicked");
+  // Force reflow so repeated clicks retrigger animation.
+  void el.offsetWidth;
+  el.classList.add("clicked");
+  window.setTimeout(() => el.classList.remove("clicked"), 170);
+}
+
 function wireUi() {
   // Prevent server updates from snapping active controls back while editing.
   lockWhileInteracting("selPattern", $("selPattern"));
@@ -549,8 +586,14 @@ function wireUi() {
   lockWhileInteracting("rngLedSpacing", $("rngLedSpacing"));
   lockWhileInteracting("rngGlow", $("rngGlow"));
   lockWhileInteracting("txtOpenAiModel", $("txtOpenAiModel"));
+  lockWhileInteracting("clrLine", $("clrLine"));
+  lockWhileInteracting("numDrawPps", $("numDrawPps"));
+  lockWhileInteracting("numHold", $("numHold"));
+  lockWhileInteracting("numErasePps", $("numErasePps"));
+  lockWhileInteracting("selToolpathSource", $("selToolpathSource"));
 
-  $("btnStart").addEventListener("click", async () => {
+  $("btnStart")?.addEventListener("click", async () => {
+    animateClick($("btnStart"));
     try {
       const updated = await apiPost("/api/control/start");
       state.lastSettings = updated;
@@ -559,7 +602,8 @@ function wireUi() {
       if (!state.connected) connectWs();
     } catch (e) { console.error(e); }
   });
-  $("btnStop").addEventListener("click", async () => {
+  $("btnStop")?.addEventListener("click", async () => {
+    animateClick($("btnStop"));
     try {
       const updated = await apiPost("/api/control/stop");
       state.lastSettings = updated;
@@ -568,16 +612,8 @@ function wireUi() {
       setText("statusSeq", "—");
     } catch (e) { console.error(e); }
   });
-  $("btnReset").addEventListener("click", async () => {
-    try {
-      const updated = await apiPost("/api/control/reset");
-      state.lastSettings = updated;
-      applySettingsToUI(updated);
-    } catch (e) { console.error(e); }
-    clearCanvas();
-  });
 
-  $("btnSaveOpenAiKey").addEventListener("click", () => {
+  $("btnSaveOpenAiKey")?.addEventListener("click", () => {
     const v = ($("inpOpenAiApiKey")?.value || "").trim();
     if (!v) {
       const hint = $("txtOpenAiKeyHint");
@@ -587,64 +623,58 @@ function wireUi() {
     queueSettingsPatch({ integrations: { openai: { api_key: v } } }, { immediate: true });
     if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
   });
-  $("btnClearOpenAiKey").addEventListener("click", () => {
+  $("btnClearOpenAiKey")?.addEventListener("click", () => {
     queueSettingsPatch({ integrations: { openai: { api_key: "" } } }, { immediate: true });
     if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
   });
-  $("txtOpenAiModel").addEventListener("change", (e) => {
+  $("txtOpenAiModel")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("txtOpenAiModel", Date.now());
     queueSettingsPatch({ integrations: { openai: { model: e.target.value.trim() } } });
   });
 
-  $("btnSettings").addEventListener("click", () => {
-    const panel = $("settingsPanel");
-    const btn = $("btnSettings");
-    const next = panel.hidden;
-    panel.hidden = !next;
-    btn.setAttribute("aria-expanded", String(next));
-  });
+  // Settings panel was removed; settings now live on /settings.html
 
-  $("selPattern").addEventListener("change", (e) => {
+  $("selPattern")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selPattern", Date.now());
     // Pattern switches should feel instant; trigger transition immediately.
     queueSettingsPatch({ art: { pattern: e.target.value } }, { immediate: true });
     syncPhotoLineDrawingUi({ art: { pattern: e.target.value } });
   });
-  $("rngBrightness").addEventListener("input", (e) => {
+  $("rngBrightness")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 1);
-    $("txtBrightness").textContent = v.toFixed(2);
+    if ($("txtBrightness")) $("txtBrightness").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngBrightness", Date.now());
     queueSettingsPatch({ art: { brightness: v } });
   });
-  $("rngSpeed").addEventListener("input", (e) => {
+  $("rngSpeed")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 5);
-    $("txtSpeed").textContent = v.toFixed(2);
+    if ($("txtSpeed")) $("txtSpeed").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngSpeed", Date.now());
     queueSettingsPatch({ art: { speed: v } });
   });
-  $("numFps").addEventListener("change", (e) => {
+  $("numFps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 1, 120);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numFps", Date.now());
     queueSettingsPatch({ stream: { fps: v } });
   });
-  $("selAutoFps").addEventListener("change", (e) => {
+  $("selAutoFps")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selAutoFps", Date.now());
     const on = e.target.value === "true";
     queueSettingsPatch({ stream: { auto_fps: on } }, { immediate: true });
   });
-  $("numMaxFps").addEventListener("change", (e) => {
+  $("numMaxFps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 1, 120);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numMaxFps", Date.now());
     queueSettingsPatch({ stream: { max_fps: v } }, { immediate: true });
   });
-  $("selAutoLearn").addEventListener("change", (e) => {
+  $("selAutoLearn")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selAutoLearn", Date.now());
     const on = e.target.value === "true";
     queueSettingsPatch({ stream: { auto_learn: on } }, { immediate: true });
   });
-  $("btnResetLearned").addEventListener("click", async () => {
+  $("btnResetLearned")?.addEventListener("click", async () => {
     try {
       await apiPost("/api/perf/reset");
       // Refresh settings so learned cap display updates.
@@ -655,25 +685,27 @@ function wireUi() {
       console.error(e);
     }
   });
-  $("selMatrixPreset").addEventListener("change", (e) => {
+  $("selMatrixPreset")?.addEventListener("change", (e) => {
     // Backend uses preset to set width/height.
     state.lastLocalEditAt.set("selMatrixPreset", Date.now());
-    queueSettingsPatch({ matrix: { preset: e.target.value } });
+    queueSettingsPatch({ matrix: { preset: e.target.value } }, { immediate: true });
     clearCanvas();
+    // If the last frame was from a different matrix size, discard it to prevent “stuck at 8×8” perception.
+    state.lastFrame = null;
   });
-  $("selLedShape").addEventListener("change", (e) => {
+  $("selLedShape")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selLedShape", Date.now());
     queueSettingsPatch({ simulator: { led_shape: e.target.value } });
   });
-  $("rngLedSpacing").addEventListener("input", (e) => {
+  $("rngLedSpacing")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 10);
-    $("txtLedSpacing").textContent = String(v);
+    if ($("txtLedSpacing")) $("txtLedSpacing").textContent = String(v);
     state.lastLocalEditAt.set("rngLedSpacing", Date.now());
     queueSettingsPatch({ simulator: { led_spacing: v } });
   });
-  $("rngGlow").addEventListener("input", (e) => {
+  $("rngGlow")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 1);
-    $("txtGlow").textContent = v.toFixed(2);
+    if ($("txtGlow")) $("txtGlow").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngGlow", Date.now());
     queueSettingsPatch({ simulator: { glow: v } });
   });
@@ -702,27 +734,92 @@ function wireUi() {
   if (btnUse) {
     btnUse.addEventListener("click", async () => {
       const drawingId = $("selDrawing")?.value || null;
-      const lineColor = $("clrLine")?.value || "#b8d7ff";
-      const drawPps = Number($("numDrawPps")?.value || 250);
-      const hold = Number($("numHold")?.value || 4);
-      const erase = Number($("numErasePps")?.value || 800);
-      queueSettingsPatch(
-        {
-          art: {
-            pattern: "living_drawing",
-            drawing_id: drawingId,
-            line_color: lineColor,
-            draw_pps: drawPps,
-            hold_seconds: hold,
-            erase_pps: erase,
-          },
-        },
-        { immediate: true }
-      );
+      const artPatch = { pattern: "living_drawing", drawing_id: drawingId };
+
+      // These controls live on the Settings page now; only include if present.
+      if ($("clrLine")) artPatch.line_color = $("clrLine").value || "#b8d7ff";
+      if ($("selToolpathSource")) artPatch.toolpath_source = $("selToolpathSource").value || "auto";
+      if ($("numDrawPps")) artPatch.draw_pps = Number($("numDrawPps").value || 250);
+      if ($("numHold")) artPatch.hold_seconds = Number($("numHold").value || 4);
+      if ($("numErasePps")) artPatch.erase_pps = Number($("numErasePps").value || 800);
+
+      queueSettingsPatch({ art: artPatch }, { immediate: true });
     });
   }
 
-  $("selDrawing")?.addEventListener("change", () => syncRenameInputFromSelection());
+  $("selToolpathSource")?.addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selToolpathSource", Date.now());
+    queueSettingsPatch({ art: { toolpath_source: e.target.value } }, { immediate: true });
+  });
+
+  const gen = async (source) => {
+    const id = $("selDrawing")?.value || "";
+    const status = $("txtRefineStatus");
+    if (!id) {
+      if (status) status.textContent = "Select an upload first.";
+      return;
+    }
+    const w = state.lastSettings?.matrix?.width;
+    const h = state.lastSettings?.matrix?.height;
+    if (!w || !h) return;
+    if (status) status.textContent = `Generating ${source} for ${w}×${h}…`;
+    try {
+      await apiPostDetailed(`/api/images/${encodeURIComponent(id)}/toolpaths/${w}x${h}/${source}/generate`, {});
+      if (status) status.textContent = `Generated ${source} for ${w}×${h}.`;
+      await refreshDrawingList(id);
+    } catch (err) {
+      console.error(err);
+      if (status) status.textContent = String(err && err.message ? err.message : err);
+    }
+  };
+  $("btnGenerateVectorized")?.addEventListener("click", () => { void gen("vectorized"); });
+  $("btnGenerateEdge")?.addEventListener("click", () => { void gen("edge"); });
+
+  $("selDrawing")?.addEventListener("change", () => {
+    syncRenameInputFromSelection();
+    const id = $("selDrawing")?.value || null;
+    // If living drawing is active, switching library selection should switch the drawing immediately.
+    const isLiving = state.lastSettings?.art?.pattern === "living_drawing";
+    if (isLiving) {
+      queueSettingsPatch({ art: { drawing_id: id } }, { immediate: true });
+    }
+
+    // Update sidebar label immediately (without waiting for a server roundtrip)
+    const nowPlaying = $("txtNowPlaying");
+    if (nowPlaying && isLiving) {
+      const opt = $("selDrawing")?.selectedOptions && $("selDrawing").selectedOptions[0];
+      const lab = (opt && opt.dataset && opt.dataset.displayLabel) || id || "";
+      if (lab) {
+        const cur = nowPlaying.textContent || "Living drawing";
+        const base = cur.split(" · ")[0] || "Living drawing";
+        nowPlaying.textContent = `${base} · ${lab}`;
+      }
+    }
+  });
+
+  $("clrLine")?.addEventListener("input", (e) => {
+    const v = String(e.target.value || "#b8d7ff");
+    state.lastLocalEditAt.set("clrLine", Date.now());
+    queueSettingsPatch({ art: { line_color: v } }, { immediate: true });
+  });
+  $("numDrawPps")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 10, 5000);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numDrawPps", Date.now());
+    queueSettingsPatch({ art: { draw_pps: v } });
+  });
+  $("numHold")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 0, 60);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numHold", Date.now());
+    queueSettingsPatch({ art: { hold_seconds: v } });
+  });
+  $("numErasePps")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 10, 20000);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numErasePps", Date.now());
+    queueSettingsPatch({ art: { erase_pps: v } });
+  });
 
   const btnDelAi = $("btnDeleteAiToolpath");
   if (btnDelAi) {
@@ -863,7 +960,8 @@ async function refreshDrawingList(selectedId) {
 
   const opt0 = document.createElement("option");
   opt0.value = "";
-  opt0.textContent = imgs.length ? "Select…" : "No uploads yet";
+  // Use plain ASCII here; some fonts render ellipsis poorly in <select>.
+  opt0.textContent = imgs.length ? "Select..." : "No uploads yet";
   sel.appendChild(opt0);
 
   for (const img of imgs) {
@@ -877,7 +975,12 @@ async function refreshDrawingList(selectedId) {
     sel.appendChild(opt);
   }
 
-  if (selectedId) sel.value = selectedId;
+  const desired =
+    selectedId ||
+    (state.lastSettings && state.lastSettings.art && state.lastSettings.art.drawing_id) ||
+    "";
+  if (desired) sel.value = desired;
+  if (!sel.value) sel.selectedIndex = 0;
   syncRenameInputFromSelection();
 }
 

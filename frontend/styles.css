@@ -8,6 +8,8 @@
   --accent: #78a6ff;
   --accent2: #9ee6d6;
   --shadow: rgba(0, 0, 0, 0.55);
+  /* Hint native controls (select dropdowns) to use dark theme where supported. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -56,6 +58,7 @@ html, body {
 
 .btn:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
 .btn:active { transform: translateY(1px); }
+.btn.clicked { transform: translateY(1px) scale(0.98); }
 
 .btn.primary {
   border-color: rgba(120, 166, 255, 0.35);
@@ -115,6 +118,59 @@ canvas {
   aspect-ratio: 1 / 1;
 }
 
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.modalOverlay[hidden] {
+  display: none !important;
+}
+
+.modalCard {
+  width: min(980px, 96vw);
+  max-height: 92vh;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.35);
+  border-radius: 18px;
+  box-shadow: 0 18px 80px rgba(0,0,0,0.75);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modalHeader, .modalFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modalFooter {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+.modalBody {
+  padding: 12px;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modalCanvas {
+  width: min(820px, 92vw);
+  height: auto;
+  max-height: 70vh;
+}
+
 .statusBar {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -132,6 +188,20 @@ canvas {
 .statusItem .value { display: block; font-size: 13px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .settingsPanel {
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.22);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 18px 60px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.playPanel {
   border: 1px solid var(--border);
   background: rgba(0,0,0,0.22);
   border-radius: 18px;
@@ -376,6 +446,8 @@ input[type="text"], input[type="password"], input[type="number"], select {
   outline: none;
 }
 
+/* Dropdown menus are native UI. On Windows/Chrome, leaving defaults can produce white-on-white
+   where options look blank unless hovered. Force both background and text color together. */
 select option {
   background: #0b0f14;
   color: rgba(255, 255, 255, 0.92);
@@ -398,11 +470,122 @@ input[type="range"] { width: 100%; }
 
 .muted { color: var(--muted); font-size: 12px; }
 
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.82);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.badge.good {
+  border-color: rgba(158, 230, 214, 0.28);
+  background: rgba(158, 230, 214, 0.10);
+  color: rgba(215, 255, 248, 0.95);
+}
+
+.badge.bad {
+  border-color: rgba(255, 120, 120, 0.30);
+  background: rgba(255, 80, 80, 0.10);
+  color: rgba(255, 220, 220, 0.95);
+}
+
 .settingsFooter {
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
+
+.galleryGrid {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.galleryCard {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 18px 60px var(--shadow);
+  overflow: hidden;
+}
+
+.galleryThumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.10);
+  object-fit: cover;
+}
+
+.galleryTitleRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  align-items: baseline;
+}
+
+.galleryTitle {
+  font-weight: 650;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.galleryMeta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.variantList {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.variantRow {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.12);
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.variantCanvas {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.variantInfo {
+  min-width: 0;
+}
+
+.variantActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 
 @media (max-width: 1020px) {
   .main {

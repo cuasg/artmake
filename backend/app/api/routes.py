@@ -4,10 +4,13 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.ai.openai_toolpath import ToolpathParseError, refine_toolpath_with_openai, validate_toolpath
-from app.engine.path_stitch import normalize_ai_toolpath
+from app.ai.openai_toolpath import OpenAIRequestError, ToolpathParseError, refine_toolpath_with_openai, validate_strokes, validate_toolpath
+from app.engine.line_draw import expand_path, image_to_points, order_points_nearest
+from app.engine.path_stitch import normalize_ai_strokes, normalize_ai_toolpath
 from app.engine.patterns import PATTERN_INFOS
 from app.engine.renderer import FrameRenderer
+from app.engine.line_art_vectorize import image_to_strokes_lineart
+from PIL import Image
 from app.image_library import ImageLibrary
 from app.perf_service import PerfService
 from app.settings_public import public_settings_dict
@@ -20,6 +23,12 @@ class RefineToolpathBody(BaseModel):
 
 class ImageLabelBody(BaseModel):
     label: str
+
+
+class ToolpathKeyBody(BaseModel):
+    w: int
+    h: int
+    source: str  # ai|vectorized|edge
 
 
 def build_routes(
@@ -91,6 +100,7 @@ def build_routes(
                     "label": i.label,
                     "size_bytes": i.size_bytes,
                     "has_ai_toolpath": image_library.has_toolpath(i.id),
+                    "toolpaths": image_library.list_toolpaths(i.id),
                 }
                 for i in imgs
             ]
@@ -111,10 +121,81 @@ def build_routes(
             return None
         return settings_service.update({"art": {"drawing_id": None}})
 
+    @router.get("/images/{image_id}/toolpaths/{w}x{h}")
+    async def images_get_toolpath(image_id: str, w: int, h: int) -> dict:
+        if not image_library.get(image_id):
+            raise HTTPException(status_code=404, detail="Image not found")
+        # default to ai variant
+        j = image_library.load_toolpath(image_id, w, h, "ai")
+        if not j:
+            raise HTTPException(status_code=404, detail="Toolpath not found")
+        return j
+
+    @router.get("/images/{image_id}/toolpaths/{w}x{h}/{source}")
+    async def images_get_toolpath_variant(image_id: str, w: int, h: int, source: str) -> dict:
+        if not image_library.get(image_id):
+            raise HTTPException(status_code=404, detail="Image not found")
+        j = image_library.load_toolpath(image_id, w, h, source)
+        if not j:
+            raise HTTPException(status_code=404, detail="Toolpath not found")
+        return j
+
+    @router.delete("/images/{image_id}/toolpaths/{w}x{h}")
+    async def images_delete_toolpath_variant(image_id: str, w: int, h: int) -> dict:
+        if not image_library.get(image_id):
+            raise HTTPException(status_code=404, detail="Image not found")
+        removed = image_library.delete_toolpath(image_id, w, h, "ai")
+        renderer.invalidate_living_drawing(image_id)
+        return {"ok": True, "removed": removed}
+
+    @router.delete("/images/{image_id}/toolpaths/{w}x{h}/{source}")
+    async def images_delete_toolpath_variant_source(image_id: str, w: int, h: int, source: str) -> dict:
+        if not image_library.get(image_id):
+            raise HTTPException(status_code=404, detail="Image not found")
+        removed = image_library.delete_toolpath(image_id, w, h, source)
+        renderer.invalidate_living_drawing(image_id)
+        return {"ok": True, "removed": removed}
+
+    @router.post("/images/{image_id}/toolpaths/{w}x{h}/{source}/generate")
+    async def images_generate_toolpath(image_id: str, w: int, h: int, source: str) -> dict:
+        e = image_library.get(image_id)
+        if not e:
+            raise HTTPException(status_code=404, detail="Image not found")
+        source = source.strip().lower()
+        if source not in ("vectorized", "edge"):
+            raise HTTPException(status_code=400, detail="source must be vectorized or edge")
+
+        if source == "vectorized":
+            img = Image.open(e.path).convert("RGB")
+            strokes = image_to_strokes_lineart(img, int(w), int(h))
+            expanded_strokes = normalize_ai_strokes(strokes, int(w), int(h))
+        else:
+            # edge trace as a single stroke
+            pts = image_to_points(e.path, int(w), int(h), threshold=0.22)
+            ordered = order_points_nearest(pts, max_len=12000)
+            expanded = expand_path(ordered)
+            expanded_strokes = [expanded]
+
+        payload = {
+            "version": 2,
+            "image_id": image_id,
+            "matrix": {"width": int(w), "height": int(h)},
+            "model": None,
+            "raw": {"width": int(w), "height": int(h), "strokes": [{"points": s} for s in expanded_strokes]},
+            "expanded_strokes": [[[int(x), int(y)] for x, y in stroke] for stroke in expanded_strokes],
+            "expanded_points": None,
+            "source": source,
+        }
+        image_library.save_toolpath(image_id, payload, w=int(w), h=int(h), source=source)
+        renderer.invalidate_living_drawing(image_id)
+
+        return {"ok": True, "image_id": image_id, "w": int(w), "h": int(h), "source": source, "strokes": len(expanded_strokes)}
+
     @router.delete("/images/{image_id}/toolpath")
     async def images_delete_toolpath(image_id: str) -> dict:
         if not image_library.get(image_id):
             raise HTTPException(status_code=404, detail="Image not found")
+        # remove all toolpaths for this image
         removed = image_library.delete_toolpath(image_id)
         renderer.invalidate_living_drawing(image_id)
         return {"ok": True, "removed": removed}
@@ -152,47 +233,77 @@ def build_routes(
 
     @router.post("/images/{image_id}/refine-toolpath")
     async def images_refine_toolpath(image_id: str, body: RefineToolpathBody | None = None) -> dict:
-        e = image_library.get(image_id)
-        if not e:
-            raise HTTPException(status_code=404, detail="Image not found")
-
-        settings = settings_service.get()
-        w = settings.matrix.width
-        h = settings.matrix.height
-
-        img_bytes = e.path.read_bytes()
-        oa = settings.integrations.openai
-        override_model = (body.model.strip() if body and body.model else "") or ""
-        settings_model = (oa.model or "").strip()
-        model_arg = override_model or settings_model or None
-
         try:
-            raw, model_used = refine_toolpath_with_openai(
-                image_bytes=img_bytes,
-                width=w,
-                height=h,
-                api_key=(oa.api_key or "").strip() or None,
-                model=model_arg,
+            e = image_library.get(image_id)
+            if not e:
+                raise HTTPException(status_code=404, detail="Image not found")
+
+            settings = settings_service.get()
+            w = settings.matrix.width
+            h = settings.matrix.height
+
+            img_bytes = e.path.read_bytes()
+            oa = settings.integrations.openai
+            override_model = (body.model.strip() if body and body.model else "") or ""
+            settings_model = (oa.model or "").strip()
+            model_arg = override_model or settings_model or None
+
+            try:
+                raw, model_used = refine_toolpath_with_openai(
+                    image_bytes=img_bytes,
+                    width=w,
+                    height=h,
+                    api_key=(oa.api_key or "").strip() or None,
+                    model=model_arg,
+                )
+                expanded_strokes = None
+                expanded = None
+                if isinstance(raw, dict) and isinstance(raw.get("strokes"), list):
+                    strokes = validate_strokes(raw, w, h)
+                    expanded_strokes = normalize_ai_strokes(strokes, w, h)
+                else:
+                    pts = validate_toolpath(raw, w, h)
+                    expanded = normalize_ai_toolpath(pts, w, h)
+            except ToolpathParseError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except OpenAIRequestError as exc:
+                # Map auth/rate-limit/etc to the correct HTTP status for the UI.
+                raise HTTPException(status_code=int(exc.status_code), detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            payload = {
+                "version": 2,
+                "image_id": image_id,
+                "matrix": {"width": w, "height": h},
+                "model": model_used,
+                "raw": raw,
+                "expanded_strokes": (
+                    [[[int(x), int(y)] for x, y in stroke] for stroke in expanded_strokes]
+                    if expanded_strokes is not None
+                    else None
+                ),
+                "expanded_points": (
+                    [[int(x), int(y)] for x, y in expanded] if expanded_strokes is None and expanded is not None else None
+                ),
+            }
+            image_library.save_toolpath(image_id, payload, w=w, h=h, source="ai")
+            renderer.invalidate_living_drawing(image_id)
+
+            total_points = (
+                sum(len(s) for s in expanded_strokes) if expanded_strokes is not None else len(expanded or [])
             )
-            pts = validate_toolpath(raw, w, h)
-            expanded = normalize_ai_toolpath(pts, w, h)
-        except ToolpathParseError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        payload = {
-            "version": 1,
-            "image_id": image_id,
-            "matrix": {"width": w, "height": h},
-            "model": model_used,
-            "raw": raw,
-            "expanded_points": [[int(x), int(y)] for x, y in expanded],
-        }
-        image_library.save_toolpath(image_id, payload)
-        renderer.invalidate_living_drawing(image_id)
-
-        return {"ok": True, "image_id": image_id, "points": len(expanded)}
+            return {
+                "ok": True,
+                "image_id": image_id,
+                "strokes": (len(expanded_strokes) if expanded_strokes is not None else 1),
+                "points": int(total_points),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # Surface a useful message during local development.
+            raise HTTPException(status_code=500, detail=f"Internal error: {type(exc).__name__}: {exc}") from exc
 
     return router
 

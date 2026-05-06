@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gallery · AI Light Canvas</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="appShell">
+      <header class="topBar">
+        <div class="brand">
+          <div class="brandTitle">Gallery</div>
+          <div class="brandSub">Uploaded photos + optimized matrix versions</div>
+        </div>
+        <div class="topBarActions">
+          <a href="/" class="btn ghost" style="text-decoration:none; display:inline-flex; align-items:center">Back to Simulator</a>
+        </div>
+      </header>
+
+      <main class="main" style="grid-template-columns: 1fr; padding-top: 12px">
+        <section class="canvasPanel">
+          <div class="settingsGroup" style="max-width: 1100px; width: 100%; margin: 0 auto;">
+            <div class="groupTitle">Gallery</div>
+            <div id="galleryStatus" class="muted">Loading…</div>
+          </div>
+
+          <div id="galleryGrid" class="galleryGrid"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="previewModal" class="modalOverlay" hidden>
+      <div class="modalCard" role="dialog" aria-modal="true" aria-label="Matrix preview">
+        <div class="modalHeader">
+          <div id="previewTitle" class="groupTitle" style="margin:0">Preview</div>
+          <button id="btnClosePreview" class="btn ghost" type="button">Close</button>
+        </div>
+        <div class="modalBody">
+          <canvas id="previewCanvas" width="640" height="640" class="modalCanvas"></canvas>
+        </div>
+        <div class="modalFooter">
+          <div id="previewHint" class="muted">Tip: Copy puts a PNG in your clipboard.</div>
+          <div style="flex:1"></div>
+          <button id="btnCopyPreview" class="btn primary" type="button">Copy image</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./gallery.js"></script>
+  </body>
+</html>
+

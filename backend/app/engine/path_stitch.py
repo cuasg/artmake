@@ -75,3 +75,22 @@ def normalize_ai_toolpath(points: List[Point], w: int, h: int, *, max_len: int =
     pts = dedupe_consecutive(pts)
     pts = downsample_stride(pts, max_len)
     return pts
+
+
+def normalize_ai_strokes(
+    strokes: List[List[Point]],
+    w: int,
+    h: int,
+    *,
+    max_len_each: int = 40000,
+) -> List[List[Point]]:
+    """
+    Normalize each stroke independently (clamp, stitch gaps, densify).
+    Empty strokes are dropped.
+    """
+    out: List[List[Point]] = []
+    for s in strokes:
+        pts = normalize_ai_toolpath(s, w, h, max_len=max_len_each)
+        if len(pts) >= 2:
+            out.append(pts)
+    return out

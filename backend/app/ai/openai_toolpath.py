@@ -3,11 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 from io import BytesIO
 from typing import Any, Dict, List, Tuple
 
 import httpx
 from PIL import Image
+from PIL import ImageFilter, ImageOps
 
 
 PixelPoint = Tuple[int, int]
@@ -19,27 +21,46 @@ TOOLPATH_RESPONSE_SCHEMA: Dict[str, Any] = {
     "properties": {
         "width": {"type": "integer", "minimum": 1, "description": "Must equal canvas width W."},
         "height": {"type": "integer", "minimum": 1, "description": "Must equal canvas height H."},
-        "path": {
+        "strokes": {
             "type": "array",
             "description": (
-                "Ordered pixel centers tracing the REFERENCE photo's subject silhouette and major contours "
-                "on this LED grid (same pose, placement, and recognizable outline—not a different drawing)."
+                "Ordered brush strokes. Each stroke is a polyline of pixel coordinates in drawing order. "
+                "Use multiple strokes to simulate an artist building the drawing."
             ),
-            "minItems": 2,
+            "minItems": 1,
             "items": {
-                "type": "array",
-                "minItems": 2,
-                "maxItems": 2,
-                "items": {"type": "integer"},
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "points": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": {"type": "integer"},
+                        },
+                    }
+                },
+                "required": ["points"],
             },
         },
     },
-    "required": ["width", "height", "path"],
+    # NOTE: For OpenAI Structured Outputs (strict), required must include all fields we expect.
+    # We require strokes (not path) so the model always returns brush-stroke segments.
+    "required": ["width", "height", "strokes"],
 }
 
 
 class ToolpathParseError(RuntimeError):
     pass
+
+
+class OpenAIRequestError(RuntimeError):
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = int(status_code)
 
 
 def build_prompt(width: int, height: int) -> str:
@@ -74,10 +95,15 @@ def build_prompt(width: int, height: int) -> str:
         "- Keep coordinates INSIDE [0,W-1] and [0,H-1].\n"
         "\n"
         "Output for our pipeline:\n"
-        "- Respond ONLY as structured JSON matching the provided schema: fields width, height, path.\n"
+        "- Respond ONLY as structured JSON matching the provided schema.\n"
         "- width and height MUST equal W and H above.\n"
-        "- path MUST list pixel centers in visit order along that silhouette/contour walk.\n"
-        "- Prefer ~80–400 points (more if needed on larger canvases) so contours aren’t overly coarse.\n"
+        "- Prefer strokes[] (multiple brush strokes). Each stroke has points[] in drawing order.\n"
+        "- If you cannot produce multiple strokes, you may fall back to a single path.\n"
+        "- Total points should scale with canvas: on 16×16 aim ~80–250 total points; on 64×64 aim ~800–3000.\n"
+        "\n"
+        "CRITICAL PLACEMENT AID:\n"
+        "- You will also be given a GRID PREVIEW image that is already mapped to this W×H canvas (upscaled for viewing).\n"
+        "- Use the GRID PREVIEW to decide where pixels go. Do not guess layout from the high-res photo alone.\n"
     )
 
 
@@ -94,6 +120,12 @@ def refine_toolpath_with_openai(
     model: str | None = None,
 ) -> tuple[Dict[str, Any], str]:
     api_key_resolved = (api_key or "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+    # Clipboard pastes can include invisible Unicode (e.g. zero-width spaces) which breaks header encoding.
+    # IMPORTANT: Do NOT remove valid key punctuation like '-' or '_' (OpenAI keys often include them).
+    api_key_resolved = api_key_resolved.replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "")
+    api_key_resolved = re.sub(r"\s+", "", api_key_resolved)
+    # Ensure header-safe ASCII without altering normal key characters like '-'/'_'.
+    api_key_resolved = api_key_resolved.encode("ascii", "ignore").decode("ascii")
     if not api_key_resolved:
         raise RuntimeError(
             "OpenAI API key missing: add it under Settings → Integrations → OpenAI, "
@@ -108,10 +140,27 @@ def refine_toolpath_with_openai(
     preview_max_side = int(os.getenv("OPENAI_PREVIEW_MAX_SIDE", "1536"))
     img.thumbnail((preview_max_side, preview_max_side))
 
+    # Provide a pixel-accurate “grid preview” to anchor the model to exact W×H placement.
+    grid = img.resize((int(width), int(height)), Image.BILINEAR)
+    grid_up = grid.resize((int(width) * 32, int(height) * 32), Image.NEAREST)
+
+    edges = ImageOps.autocontrast(grid.convert("L").filter(ImageFilter.FIND_EDGES))
+    edges_up = edges.resize((int(width) * 32, int(height) * 32), Image.NEAREST).convert("RGB")
+
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     data_url = f"data:image/png;base64,{b64}"
+
+    buf2 = BytesIO()
+    grid_up.save(buf2, format="PNG", optimize=True)
+    b64_grid = base64.b64encode(buf2.getvalue()).decode("ascii")
+    grid_url = f"data:image/png;base64,{b64_grid}"
+
+    buf3 = BytesIO()
+    edges_up.save(buf3, format="PNG", optimize=True)
+    b64_edges = base64.b64encode(buf3.getvalue()).decode("ascii")
+    edges_url = f"data:image/png;base64,{b64_edges}"
 
     image_detail = (os.getenv("OPENAI_IMAGE_DETAIL", "high") or "high").strip().lower()
     if image_detail not in ("low", "high", "auto", "original"):
@@ -130,8 +179,8 @@ def refine_toolpath_with_openai(
                     {
                         "type": "input_text",
                         "text": (
-                            "REFERENCE PHOTO is next. Every vertex you output must trace THIS exact photo's subject "
-                            "and layout—not an invented drawing."
+                            "You will receive (1) the original REFERENCE PHOTO, (2) a GRID PREVIEW mapped to the LED canvas, "
+                            "and (3) an EDGE PREVIEW. Use GRID/EDGE previews to place coordinates accurately."
                         ),
                     },
                     {
@@ -139,6 +188,10 @@ def refine_toolpath_with_openai(
                         "detail": image_detail,
                         "image_url": data_url,
                     },
+                    {"type": "input_text", "text": "GRID PREVIEW (already mapped to W×H canvas, upscaled with nearest-neighbor):"},
+                    {"type": "input_image", "detail": "low", "image_url": grid_url},
+                    {"type": "input_text", "text": "EDGE PREVIEW (same mapping; use for contour placement):"},
+                    {"type": "input_image", "detail": "low", "image_url": edges_url},
                     {"type": "input_text", "text": build_prompt(width, height)},
                 ],
             }
@@ -156,10 +209,38 @@ def refine_toolpath_with_openai(
 
     headers = {"Authorization": f"Bearer {api_key_resolved}", "Content-Type": "application/json"}
 
-    with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
-        r = client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
+    timeout_s = float(os.getenv("OPENAI_TIMEOUT_S", "240"))
+    connect_s = float(os.getenv("OPENAI_CONNECT_TIMEOUT_S", "20"))
+
+    def _post_once(client: httpx.Client) -> httpx.Response:
+        return client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
+
+    with httpx.Client(timeout=httpx.Timeout(timeout_s, connect=connect_s)) as client:
+        try:
+            r = _post_once(client)
+        except httpx.ReadTimeout as exc:
+            # One retry: transient stalls happen; keep UI simple.
+            try:
+                r = _post_once(client)
+            except httpx.ReadTimeout as exc2:
+                raise OpenAIRequestError(504, "OpenAI request timed out. Try again.") from exc2
+            except httpx.HTTPError as exc2:
+                raise OpenAIRequestError(502, f"OpenAI request failed: {type(exc2).__name__}") from exc2
+        except httpx.HTTPError as exc:
+            raise OpenAIRequestError(502, f"OpenAI request failed: {type(exc).__name__}") from exc
+
         if r.status_code >= 400:
-            raise RuntimeError(f"OpenAI error {r.status_code}: {r.text[:2000]}")
+            # Avoid spewing giant masked-key strings into logs/UI.
+            try:
+                j = r.json()
+                msg = j.get("error", {}).get("message") if isinstance(j, dict) else None
+                if isinstance(msg, str) and msg:
+                    raise OpenAIRequestError(r.status_code, msg)
+            except OpenAIRequestError:
+                raise
+            except Exception:
+                pass
+            raise OpenAIRequestError(r.status_code, f"OpenAI error {r.status_code}")
         data = r.json()
 
     text_out = _extract_output_text(data)
@@ -233,4 +314,33 @@ def validate_toolpath(obj: Dict[str, Any], expected_w: int, expected_h: int) -> 
         if x < 0 or x >= w or y < 0 or y >= h:
             raise ToolpathParseError(f"point out of bounds: {(x,y)} for {w}x{h}")
         out.append((x, y))
+    return out
+
+
+def validate_strokes(obj: Dict[str, Any], expected_w: int, expected_h: int) -> List[List[PixelPoint]]:
+    w = int(obj.get("width"))
+    h = int(obj.get("height"))
+    if w != expected_w or h != expected_h:
+        raise ToolpathParseError(f"width/height mismatch: got {w}x{h}, expected {expected_w}x{expected_h}")
+    strokes = obj.get("strokes")
+    if not isinstance(strokes, list) or not strokes:
+        raise ToolpathParseError("strokes must be a non-empty array")
+
+    out: List[List[PixelPoint]] = []
+    for s in strokes:
+        if not isinstance(s, dict):
+            raise ToolpathParseError("stroke must be an object")
+        pts = s.get("points")
+        if not isinstance(pts, list) or len(pts) < 2:
+            raise ToolpathParseError("stroke.points must be a list of points")
+        stroke_pts: List[PixelPoint] = []
+        for pt in pts:
+            if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                raise ToolpathParseError(f"bad point: {pt}")
+            x = int(pt[0])
+            y = int(pt[1])
+            if x < 0 or x >= w or y < 0 or y >= h:
+                raise ToolpathParseError(f"point out of bounds: {(x, y)} for {w}x{h}")
+            stroke_pts.append((x, y))
+        out.append(stroke_pts)
     return out

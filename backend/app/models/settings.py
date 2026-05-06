@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-MatrixPreset = Literal["32x32", "64x64", "128x64", "128x128"]
+MatrixPreset = Literal["16x16", "32x32", "64x64", "64x128", "128x64", "128x128"]
 PatternName = Literal["waves", "pulse", "fractal_julia", "living_drawing"]
 LedShape = Literal["circle", "square"]
 OutputMode = Literal["simulator"]
@@ -42,6 +42,7 @@ class ArtSettings(BaseModel):
     hold_seconds: float = Field(default=4.0, ge=0.0, le=60.0)
     erase_pps: float = Field(default=800.0, ge=10.0, le=20000.0)
     line_color: str = Field(default="#b8d7ff")  # css hex
+    toolpath_source: Literal["auto", "ai", "vectorized", "edge"] = "auto"
 
 
 class SimulatorSettings(BaseModel):

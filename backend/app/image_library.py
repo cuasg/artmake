@@ -143,32 +143,133 @@ class ImageLibrary:
     def get(self, image_id: str) -> Optional[ImageEntry]:
         return self._entry_from_disk(image_id)
 
-    def toolpath_path_for(self, image_id: str) -> Path:
+    def toolpath_path_for(
+        self,
+        image_id: str,
+        w: int | None = None,
+        h: int | None = None,
+        source: str | None = None,
+    ) -> Path:
+        """
+        Toolpaths are stored per (image_id, matrix size).
+        - New format: {image_id}__{w}x{h}.json
+        - Legacy format: {image_id}.json
+        """
+        if w and h and source:
+            return self.toolpaths_dir / f"{image_id}__{int(w)}x{int(h)}__{source}.json"
+        if w and h:
+            return self.toolpaths_dir / f"{image_id}__{int(w)}x{int(h)}__ai.json"
         return self.toolpaths_dir / f"{image_id}.json"
 
-    def has_toolpath(self, image_id: str) -> bool:
+    def list_toolpaths(self, image_id: str) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        # new format
+        for p in sorted(self.toolpaths_dir.glob(f"{image_id}__*x*__*.json")):
+            if not p.is_file():
+                continue
+            # filename: id__{w}x{h}__{source}.json
+            try:
+                suffix = p.stem.split("__", 1)[1]
+                dim, source = suffix.split("__", 1)
+                w_s, h_s = dim.split("x", 1)
+                w = int(w_s)
+                h = int(h_s)
+            except Exception:
+                continue
+            meta: Dict[str, Any] = {"w": w, "h": h, "source": source, "path": str(p)}
+            try:
+                j = json.loads(p.read_text(encoding="utf-8"))
+                pts = j.get("expanded_points")
+                strokes = j.get("expanded_strokes")
+                meta["points"] = (
+                    sum(len(s) for s in strokes) if isinstance(strokes, list) else (len(pts) if isinstance(pts, list) else 0)
+                )
+                meta["strokes"] = len(strokes) if isinstance(strokes, list) else (1 if isinstance(pts, list) else 0)
+                meta["model"] = j.get("model") if isinstance(j, dict) else None
+            except Exception:
+                meta["points"] = 0
+                meta["strokes"] = 0
+            out.append(meta)
+
+        # legacy fallback
+        legacy = self.toolpath_path_for(image_id)
+        if legacy.exists():
+            try:
+                j = json.loads(legacy.read_text(encoding="utf-8"))
+                mx = j.get("matrix") if isinstance(j, dict) else None
+                w = int(mx.get("width")) if isinstance(mx, dict) and mx.get("width") is not None else None
+                h = int(mx.get("height")) if isinstance(mx, dict) and mx.get("height") is not None else None
+                if w and h and not any(tp.get("w") == w and tp.get("h") == h for tp in out):
+                    out.append({"w": w, "h": h, "legacy": True, "points": 0, "strokes": 0})
+            except Exception:
+                pass
+        return out
+
+    def has_toolpath(self, image_id: str, w: int | None = None, h: int | None = None) -> bool:
+        if w and h:
+            return self.toolpath_path_for(image_id, w, h, "ai").exists()
+        if list(self.toolpaths_dir.glob(f"{image_id}__*x*__*.json")):
+            return True
         return self.toolpath_path_for(image_id).exists()
 
-    def load_toolpath(self, image_id: str) -> Optional[Dict[str, Any]]:
-        p = self.toolpath_path_for(image_id)
+    def load_toolpath(
+        self, image_id: str, w: int | None = None, h: int | None = None, source: str | None = None
+    ) -> Optional[Dict[str, Any]]:
+        p = self.toolpath_path_for(image_id, w, h, source)
         if not p.exists():
-            return None
+            # Legacy fallback
+            if w and h:
+                p2 = self.toolpath_path_for(image_id)
+                if not p2.exists():
+                    return None
+                p = p2
+            else:
+                return None
         try:
             return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             return None
 
-    def save_toolpath(self, image_id: str, obj: Dict[str, Any]) -> None:
-        p = self.toolpath_path_for(image_id)
+    def save_toolpath(
+        self,
+        image_id: str,
+        obj: Dict[str, Any],
+        w: int | None = None,
+        h: int | None = None,
+        source: str | None = None,
+    ) -> None:
+        p = self.toolpath_path_for(image_id, w, h, source)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(obj, indent=2), encoding="utf-8")
 
-    def delete_toolpath(self, image_id: str) -> bool:
-        p = self.toolpath_path_for(image_id)
-        if not p.exists():
-            return False
-        p.unlink()
-        return True
+    def delete_toolpath(
+        self,
+        image_id: str,
+        w: int | None = None,
+        h: int | None = None,
+        source: str | None = None,
+    ) -> bool:
+        removed = False
+        if w and h:
+            p = self.toolpath_path_for(image_id, w, h, source or "ai")
+            if p.exists():
+                p.unlink()
+                removed = True
+            return removed
+
+        # remove all
+        for p in self.toolpaths_dir.glob(f"{image_id}__*x*__*.json"):
+            try:
+                if p.is_file():
+                    p.unlink()
+                    removed = True
+            except Exception:
+                pass
+        legacy = self.toolpath_path_for(image_id)
+        if legacy.exists():
+            legacy.unlink()
+            removed = True
+        return removed
 
     def delete_image(self, image_id: str) -> None:
         e = self._entry_from_disk(image_id)

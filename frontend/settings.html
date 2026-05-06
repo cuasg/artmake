@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings · AI Light Canvas</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="appShell">
+      <header class="topBar">
+        <div class="brand">
+          <div class="brandTitle">Settings</div>
+          <div class="brandSub">FPS, caps, colors, speeds, matrix, OpenAI</div>
+        </div>
+        <div class="topBarActions">
+          <a href="/" class="btn ghost" style="text-decoration:none; display:inline-flex; align-items:center">Back to Simulator</a>
+          <a href="/gallery.html" class="btn ghost" style="text-decoration:none; display:inline-flex; align-items:center">Gallery</a>
+        </div>
+      </header>
+
+      <main class="main" style="grid-template-columns: 1fr; padding-top: 12px">
+        <section class="canvasPanel" style="max-width: 1100px; width: 100%; margin: 0 auto;">
+          <div class="settingsGroup">
+            <div class="groupTitle">Art</div>
+            <div class="fieldGrid2" style="margin-top: 10px">
+              <label class="field">
+                <span class="fieldLabel">Brightness</span>
+                <div class="rangeRow">
+                  <input id="rngBrightness" type="range" min="0" max="1" step="0.01" />
+                  <span id="txtBrightness" class="mono">—</span>
+                </div>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Ambient speed</span>
+                <div class="rangeRow">
+                  <input id="rngSpeed" type="range" min="0" max="5" step="0.01" />
+                  <span id="txtSpeed" class="mono">—</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Streaming &amp; performance</div>
+            <div class="fieldGrid2" style="margin-top: 10px">
+              <label class="field">
+                <span class="fieldLabel">Target FPS</span>
+                <input id="numFps" type="number" min="1" max="120" step="1" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Auto-tune FPS</span>
+                <select id="selAutoFps">
+                  <option value="true">On (recommended)</option>
+                  <option value="false">Off</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Max FPS cap</span>
+                <input id="numMaxFps" type="number" min="1" max="120" step="1" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Auto-learn cap</span>
+                <select id="selAutoLearn">
+                  <option value="true">On</option>
+                  <option value="false">Off</option>
+                </select>
+              </label>
+            </div>
+            <div class="btnRow" style="margin-top: 12px">
+              <button id="btnResetLearned" class="btn" type="button">Reset learned FPS cap</button>
+            </div>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Matrix</div>
+            <label class="field" style="margin-top: 10px">
+              <span class="fieldLabel">Matrix preset</span>
+              <select id="selMatrixPreset">
+                <option value="16x16">16 × 16</option>
+                <option value="32x32">32 × 32</option>
+                <option value="64x64">64 × 64</option>
+                <option value="64x128">64 × 128</option>
+                <option value="128x64">128 × 64</option>
+                <option value="128x128">128 × 128</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Simulator look</div>
+            <div class="fieldGrid2" style="margin-top: 10px">
+              <label class="field">
+                <span class="fieldLabel">LED shape</span>
+                <select id="selLedShape">
+                  <option value="circle">Circle</option>
+                  <option value="square">Square</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">LED spacing</span>
+                <div class="rangeRow">
+                  <input id="rngLedSpacing" type="range" min="0" max="8" step="1" />
+                  <span id="txtLedSpacing" class="mono">—</span>
+                </div>
+              </label>
+              <label class="field" style="grid-column: 1 / -1">
+                <span class="fieldLabel">Glow</span>
+                <div class="rangeRow">
+                  <input id="rngGlow" type="range" min="0" max="1" step="0.01" />
+                  <span id="txtGlow" class="mono">—</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Photo playback</div>
+            <div class="fieldGrid2" style="margin-top: 10px">
+              <label class="field">
+                <span class="fieldLabel">Toolpath source</span>
+                <select id="selToolpathSource">
+                  <option value="auto">Auto (prefer AI, then vectorized)</option>
+                  <option value="ai">AI optimized</option>
+                  <option value="vectorized">Vectorized (B/W line art)</option>
+                  <option value="edge">Edge trace (local)</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Line color</span>
+                <input id="clrLine" type="color" value="#b8d7ff" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Draw speed (pps)</span>
+                <input id="numDrawPps" type="number" min="10" max="5000" step="10" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Hold (sec)</span>
+                <input id="numHold" type="number" min="0" max="60" step="0.5" />
+              </label>
+              <label class="field" style="grid-column: 1 / -1">
+                <span class="fieldLabel">Erase speed (pps)</span>
+                <input id="numErasePps" type="number" min="10" max="20000" step="50" />
+              </label>
+            </div>
+            <div class="btnRow" style="margin-top: 12px">
+              <button id="btnGenerateVectorized" class="btn" type="button">Generate vectorized (selected image)</button>
+              <button id="btnGenerateEdge" class="btn" type="button">Generate edge trace (selected image)</button>
+            </div>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">ChatGPT / OpenAI</div>
+            <form id="formOpenAiCred" autocomplete="off" onsubmit="return false;" style="margin-top: 10px">
+              <input
+                type="text"
+                name="username"
+                autocomplete="username"
+                value="local"
+                tabindex="-1"
+                aria-hidden="true"
+                style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden"
+              />
+              <label class="field">
+                <span class="fieldLabel">API key</span>
+                <input id="inpOpenAiApiKey" name="openai_api_key" type="password" autocomplete="new-password" placeholder="Paste key, then Save" />
+              </label>
+              <div class="btnRow" style="margin-top: 8px">
+                <button id="btnSaveOpenAiKey" class="btn" type="button">Save key</button>
+                <button id="btnClearOpenAiKey" class="btn" type="button">Clear key</button>
+                <span id="badgeOpenAiKey" class="badge" aria-live="polite">Key: …</span>
+              </div>
+              <div id="txtOpenAiKeyHint" class="muted" style="margin-top: 8px"></div>
+              <label class="field">
+                <span class="fieldLabel">Model</span>
+                <input id="txtOpenAiModel" name="openai_model" type="text" autocomplete="off" placeholder="e.g. gpt-5-mini" />
+              </label>
+            </form>
+          </div>
+
+          <div class="settingsGroup" style="margin-top: 12px">
+            <div class="groupTitle">Optimize a photo</div>
+            <div class="muted" style="margin-top: 6px">
+              Pick an image in the simulator’s library, then come back here to generate/refine variants for the current matrix preset.
+            </div>
+            <div class="btnRow" style="margin-top: 10px">
+              <button id="btnRefineToolpath" class="btn primary" type="button">Refine with ChatGPT (selected image)</button>
+            </div>
+            <div id="txtRefineStatus" class="muted" style="margin-top: 8px"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

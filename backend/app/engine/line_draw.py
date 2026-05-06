@@ -114,7 +114,10 @@ def expand_path(path: List[Point]) -> List[Point]:
 
 @dataclass
 class DrawingProgram:
-    points: List[Point]
+    # strokes are drawn sequentially to simulate brush strokes.
+    strokes: List[List[Point]]
+    # flattened path for fast erase and legacy compatibility.
+    flat_points: List[Point]
     width: int
     height: int
 
@@ -122,7 +125,9 @@ class DrawingProgram:
 @dataclass
 class DrawingState:
     program: Optional[DrawingProgram] = None
-    idx: int = 0
+    stroke_idx: int = 0
+    point_idx: int = 0
+    flat_idx: int = 0  # how many flat_points have been drawn (for erase)
     mode: str = "idle"  # draw|hold|erase|idle
     mode_started_at_s: float = 0.0
     hold_s: float = 4.0
@@ -131,7 +136,9 @@ class DrawingState:
 
     def load_program(self, program: DrawingProgram) -> None:
         self.program = program
-        self.idx = 0
+        self.stroke_idx = 0
+        self.point_idx = 0
+        self.flat_idx = 0
         self.mode = "draw"
         self.mode_started_at_s = 0.0
 

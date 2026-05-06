@@ -6,4 +6,5 @@ PyYAML
 pillow
 numpy
 httpx
+python-multipart
 
