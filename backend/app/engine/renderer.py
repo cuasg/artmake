@@ -240,10 +240,8 @@ class FrameRenderer:
             preferred = ["ai"]
         elif source == "vectorized":
             preferred = ["vectorized"]
-        elif source == "edge":
-            preferred = ["edge"]
         else:
-            preferred = ["ai", "vectorized", "edge"]
+            preferred = ["ai", "vectorized"]
 
         stored: Dict[str, Any] | None = None
         if lib:

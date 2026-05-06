@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Set, Tuple
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 
 Point = Tuple[int, int]
 
@@ -160,6 +160,18 @@ def image_to_strokes_lineart(
     a_hi = np.asarray(g_hi).astype(np.uint8)
     t_hi = int(threshold) if threshold is not None else _otsu_threshold(a_hi)
     ink_hi = a_hi <= t_hi
+
+    # Light cleanup to reduce “broken” strokes from anti-aliased inputs:
+    # close small gaps before thinning (dilate then erode on the binary mask).
+    # Implemented via PIL filters to avoid extra deps.
+    try:
+        m = (ink_hi.astype(np.uint8) * 255)
+        im = Image.fromarray(m, mode="L")
+        im = im.filter(ImageFilter.MaxFilter(size=3)).filter(ImageFilter.MinFilter(size=3))
+        ink_hi = np.asarray(im).astype(np.uint8) > 0
+    except Exception:
+        pass
+
     ink_hi = _skeletonize_zhang_suen(ink_hi, max_iters=96)
 
     # Downsample skeleton to W×H: if any skeleton pixel exists in the block, keep it.

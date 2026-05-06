@@ -62,16 +62,18 @@ def stylize_photo_to_lineart_png(
         size = "1024x1536"
 
     prompt = (
-        "Transform the input photograph into a clean, high-contrast black-ink-on-white line drawing.\n"
-        "Constraints:\n"
+        "Transform the input photograph into a SIMPLE SINGLE-LINE black-ink-on-white sketch.\n"
+        "Constraints (strict):\n"
         "- Output must be ONLY black lines on a pure white background.\n"
         "- No shading, no gray, no colors, no halftone, no texture.\n"
+        "- NO cross-hatching, NO scribble fill, NO dense detail.\n"
+        "- Draw ONE continuous contour line (a single-stroke sketch). Minimize pen lifts.\n"
         "- Preserve the essence/likeness: same subject, pose, proportions, and major contours.\n"
-        "- Simplify details aggressively so it still reads on a low-resolution LED matrix.\n"
-        "- Use confident, continuous contour lines (Picasso/Matisse-inspired), but never at the expense of likeness.\n"
-        "- Prefer a few strong interior feature lines only when essential.\n"
-        "- Keep background minimal or empty.\n"
-        "- Composition: keep the subject centered with comfortable margins so a center square crop still contains the subject.\n"
+        "- Simplify extremely so it reads on low-resolution LED matrices.\n"
+        "- Background should be empty.\n"
+        "- Composition: optimized for a 64×96 (2:3 portrait) LED matrix; keep the subject centered with generous margins\n"
+        "  so a CENTER SQUARE CROP still contains the subject.\n"
+        "Style: Picasso/Matisse-inspired, but prioritize likeness and simplicity.\n"
     )
 
     img_url = _data_url_png(image_bytes, max_side=int(os.getenv("OPENAI_PREVIEW_MAX_SIDE", "1536")))

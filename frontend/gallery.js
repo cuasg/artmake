@@ -289,6 +289,24 @@ async function main() {
         }
       });
       manageRow.appendChild(btnDelete);
+
+      const btnDeleteVariants = document.createElement("button");
+      btnDeleteVariants.className = "btn danger";
+      btnDeleteVariants.type = "button";
+      btnDeleteVariants.textContent = "Delete all variants";
+      btnDeleteVariants.addEventListener("click", async () => {
+        if (!window.confirm(`Delete all toolpath variants for “${img.label || img.id}”?`)) return;
+        btnDeleteVariants.disabled = true;
+        try {
+          await apiDelete(`/api/images/${encodeURIComponent(img.id)}/toolpath`);
+          window.location.reload();
+        } catch (e) {
+          window.alert(String(e && e.message ? e.message : e));
+        } finally {
+          btnDeleteVariants.disabled = false;
+        }
+      });
+      manageRow.appendChild(btnDeleteVariants);
       card.appendChild(manageRow);
 
       // AI stylized line-art image (creates a derived gallery item)
@@ -496,9 +514,7 @@ async function main() {
       btnVec.addEventListener("click", () => { void runBulk("vectorized"); });
       genRow.appendChild(btnVec);
 
-      const btnEdge = mkBtn("Edge (all presets)");
-      btnEdge.addEventListener("click", () => { void runBulk("edge"); });
-      genRow.appendChild(btnEdge);
+      // Edge generation removed (vectorized only).
 
       const btnAi = mkBtn("AI (all presets)", true);
       btnAi.addEventListener("click", () => { void runBulk("ai"); });

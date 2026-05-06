@@ -820,7 +820,7 @@ function wireUi() {
     }
   };
   $("btnGenerateVectorized")?.addEventListener("click", () => { void gen("vectorized"); });
-  $("btnGenerateEdge")?.addEventListener("click", () => { void gen("edge"); });
+  // Edge generation removed (vectorized only).
 
   $("selDrawing")?.addEventListener("change", () => {
     syncRenameInputFromSelection();
@@ -879,7 +879,7 @@ function wireUi() {
       }
       if (
         !window.confirm(
-          "Remove the saved ChatGPT toolpath for this upload? The image stays; playback will use the automatic edge trace."
+          "Remove the saved ChatGPT toolpath for this upload? The image stays; playback will use the local vectorized version (if available)."
         )
       ) {
         return;

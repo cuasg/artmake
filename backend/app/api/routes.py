@@ -8,7 +8,7 @@ import os
 
 from app.ai.openai_toolpath import OpenAIRequestError, ToolpathParseError, refine_toolpath_with_openai, validate_strokes, validate_toolpath
 from app.ai.openai_image_stylize import OpenAIImageError, stylize_photo_to_lineart_png
-from app.engine.line_draw import expand_path, image_to_points, order_points_nearest
+from app.engine.line_draw import order_points_nearest
 from app.engine.path_stitch import normalize_ai_strokes, normalize_ai_toolpath
 from app.engine.patterns import PATTERN_INFOS
 from app.engine.renderer import FrameRenderer
@@ -39,7 +39,7 @@ class CropFocusBody(BaseModel):
 class ToolpathKeyBody(BaseModel):
     w: int
     h: int
-    source: str  # ai|vectorized|edge
+    source: str  # ai|vectorized
 
 
 def build_routes(
@@ -108,24 +108,12 @@ def build_routes(
         except Exception:
             focus = "center"
 
-        if source == "vectorized":
-            img = Image.open(img_path).convert("RGB")
-            img = crop_to_aspect(img, int(w), int(h), focus)
-            strokes = image_to_strokes_lineart(img, int(w), int(h))
-            expanded_strokes = normalize_ai_strokes(strokes, int(w), int(h))
-        elif source == "edge":
-            img = Image.open(img_path).convert("RGB")
-            img = crop_to_aspect(img, int(w), int(h), focus)
-            try:
-                from app.engine.line_draw import image_to_points_img
-                pts = image_to_points_img(img, int(w), int(h), threshold=0.22)
-            except Exception:
-                pts = image_to_points(img_path, int(w), int(h), threshold=0.22)
-            ordered = order_points_nearest(pts, max_len=12000)
-            expanded = expand_path(ordered)
-            expanded_strokes = [expanded]
-        else:
-            raise ValueError("source must be vectorized or edge")
+        if source != "vectorized":
+            raise ValueError("source must be vectorized")
+        img = Image.open(img_path).convert("RGB")
+        img = crop_to_aspect(img, int(w), int(h), focus)
+        strokes = image_to_strokes_lineart(img, int(w), int(h))
+        expanded_strokes = normalize_ai_strokes(strokes, int(w), int(h))
 
         payload = {
             "version": 2,
@@ -230,12 +218,11 @@ def build_routes(
         generated: list[dict] = []
         try:
             for (w, h) in DEFAULT_PRESETS:
-                for source in ("vectorized", "edge"):
-                    # Skip if it already exists
-                    if image_library.load_toolpath(saved.id, w, h, source):
-                        continue
-                    strokes_n = _save_local_toolpath(saved.id, saved.path, w, h, source)
-                    generated.append({"w": w, "h": h, "source": source, "strokes": int(strokes_n)})
+                source = "vectorized"
+                if image_library.load_toolpath(saved.id, w, h, source):
+                    continue
+                strokes_n = _save_local_toolpath(saved.id, saved.path, w, h, source)
+                generated.append({"w": w, "h": h, "source": source, "strokes": int(strokes_n)})
         except Exception:
             # Don't fail upload if generation fails; user can regenerate from Gallery.
             pass
@@ -295,13 +282,10 @@ def build_routes(
         if not e:
             raise HTTPException(status_code=404, detail="Image not found")
         source = source.strip().lower()
-        if source not in ("vectorized", "edge"):
-            raise HTTPException(status_code=400, detail="source must be vectorized or edge")
+        if source not in ("vectorized",):
+            raise HTTPException(status_code=400, detail="source must be vectorized")
 
-        if source == "vectorized":
-            strokes_n = _save_local_toolpath(image_id, e.path, int(w), int(h), "vectorized")
-        else:
-            strokes_n = _save_local_toolpath(image_id, e.path, int(w), int(h), "edge")
+        strokes_n = _save_local_toolpath(image_id, e.path, int(w), int(h), "vectorized")
         renderer.invalidate_living_drawing(image_id)
 
         return {"ok": True, "image_id": image_id, "w": int(w), "h": int(h), "source": source, "strokes": int(strokes_n)}
@@ -547,14 +531,14 @@ def build_routes(
             # Auto-generate local variants for the derived image immediately.
             generated: list[dict] = []
             for (w2, h2) in DEFAULT_PRESETS:
-                for source in ("vectorized", "edge"):
-                    if image_library.load_toolpath(derived.id, w2, h2, source):
-                        continue
-                    try:
-                        strokes_n = _save_local_toolpath(derived.id, derived.path, w2, h2, source)
-                        generated.append({"w": int(w2), "h": int(h2), "source": source, "strokes": int(strokes_n)})
-                    except Exception:
-                        pass
+                source = "vectorized"
+                if image_library.load_toolpath(derived.id, w2, h2, source):
+                    continue
+                try:
+                    strokes_n = _save_local_toolpath(derived.id, derived.path, w2, h2, source)
+                    generated.append({"w": int(w2), "h": int(h2), "source": source, "strokes": int(strokes_n)})
+                except Exception:
+                    pass
 
             return {
                 "ok": True,
