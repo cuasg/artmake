@@ -552,6 +552,7 @@ input[type="range"] { width: 100%; }
   gap: 10px;
   margin-top: 10px;
   align-items: baseline;
+  min-width: 0;
 }
 
 .galleryTitle {
@@ -565,6 +566,7 @@ input[type="range"] { width: 100%; }
 .galleryMeta {
   font-size: 12px;
   color: var(--muted);
+  flex-shrink: 0;
 }
 
 .variantList {
@@ -575,7 +577,7 @@ input[type="range"] { width: 100%; }
 
 .variantRow {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   border: 1px solid rgba(255,255,255,0.10);
@@ -590,6 +592,7 @@ input[type="range"] { width: 100%; }
   border-radius: 10px;
   background: rgba(0,0,0,0.25);
   border: 1px solid rgba(255,255,255,0.10);
+  object-fit: cover;
 }
 
 .variantInfo {

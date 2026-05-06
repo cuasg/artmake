@@ -237,6 +237,11 @@ async function main() {
       titleRow.appendChild(meta);
       card.appendChild(titleRow);
 
+      // If AI line-art exists, prefer vectorizing/previewing that derived image.
+      const kids = children.get(img.id) || [];
+      const aiKids = kids.filter((k) => (k.kind || "") === "ai_lineart");
+      const vectorSource = aiKids.length ? aiKids[0] : img;
+
       // Rename / delete controls
       const manageRow = document.createElement("div");
       manageRow.className = "btnRow";
@@ -295,10 +300,11 @@ async function main() {
       btnDeleteVariants.type = "button";
       btnDeleteVariants.textContent = "Delete all variants";
       btnDeleteVariants.addEventListener("click", async () => {
-        if (!window.confirm(`Delete all toolpath variants for “${img.label || img.id}”?`)) return;
+        const who = vectorSource.id === img.id ? (img.label || img.id) : (vectorSource.label || vectorSource.id);
+        if (!window.confirm(`Delete all toolpath variants for “${who}”?`)) return;
         btnDeleteVariants.disabled = true;
         try {
-          await apiDelete(`/api/images/${encodeURIComponent(img.id)}/toolpath`);
+          await apiDelete(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpath`);
           window.location.reload();
         } catch (e) {
           window.alert(String(e && e.message ? e.message : e));
@@ -345,8 +351,6 @@ async function main() {
       }
 
       // Show derived AI line-art thumbnail(s) inside this card
-      const kids = children.get(img.id) || [];
-      const aiKids = kids.filter((k) => (k.kind || "") === "ai_lineart");
       if (aiKids.length) {
         const block = document.createElement("div");
         block.className = "settingsGroup";
@@ -362,10 +366,8 @@ async function main() {
           row.className = "variantRow";
 
           const im = document.createElement("img");
-          im.className = "galleryThumb";
-          im.style.width = "96px";
-          im.style.height = "96px";
-          im.style.objectFit = "cover";
+          // Use the same sizing as other variant previews to avoid layout overlap.
+          im.className = "variantCanvas";
           im.src = `/api/images/${encodeURIComponent(kid.id)}`;
           im.alt = kid.label || kid.id;
           row.appendChild(im);
@@ -467,7 +469,7 @@ async function main() {
       cropRow.appendChild(btnSaveCrop);
       card.appendChild(cropRow);
 
-      const variants = Array.isArray(img.toolpaths) ? img.toolpaths : [];
+      const variants = Array.isArray(vectorSource.toolpaths) ? vectorSource.toolpaths : [];
 
       // Generate controls (bulk presets)
       const genRow = document.createElement("div");
@@ -499,7 +501,7 @@ async function main() {
         try {
           for (const p of PRESETS) {
             if (kind === "ai") await generateAi(img.id, p.w, p.h);
-            else await generateLocal(img.id, p.w, p.h, kind);
+            else await generateLocal(vectorSource.id, p.w, p.h, kind);
           }
           statusLine.textContent = `Done generating ${kind} presets. Refreshing…`;
           window.location.reload();
@@ -559,7 +561,7 @@ async function main() {
           btn.type = "button";
           btn.textContent = "Preview in Simulator";
           btn.addEventListener("click", () => {
-            void applyVariantAndGoHome(img.id, v.w, v.h);
+            void applyVariantAndGoHome(vectorSource.id, v.w, v.h);
           });
           actions.appendChild(btn);
 
@@ -572,7 +574,7 @@ async function main() {
             regen.disabled = true;
             try {
               if (src === "ai") await generateAi(img.id, v.w, v.h);
-              else await generateLocal(img.id, v.w, v.h, src);
+              else await generateLocal(vectorSource.id, v.w, v.h, src);
               window.location.reload();
             } catch (e) {
               window.alert(String(e && e.message ? e.message : e));
@@ -591,7 +593,7 @@ async function main() {
             del.disabled = true;
             try {
               await apiDelete(
-                `/api/images/${encodeURIComponent(img.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(src)}`
+                `/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(src)}`
               );
               window.location.reload();
             } catch (e) {
@@ -607,12 +609,13 @@ async function main() {
 
           // Load toolpath JSON for preview render
           try {
-            const tp = await apiGet(`/api/images/${encodeURIComponent(img.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(v.source || "ai")}`);
+            const tp = await apiGet(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(v.source || "ai")}`);
             drawToolpathPreview(cv, tp);
             cv.style.cursor = "pointer";
             cv.title = "Click to open large preview (copyable)";
             cv.addEventListener("click", () => {
-              modal?.open(`${img.label || img.id} · ${v.w}×${v.h} · ${v.source || "ai"}`, tp);
+              const name = vectorSource.label || vectorSource.id;
+              modal?.open(`${name} · ${v.w}×${v.h} · ${v.source || "ai"}`, tp);
             });
           } catch (_) {
             // leave blank
