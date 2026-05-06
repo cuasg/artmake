@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-MatrixPreset = Literal["16x16", "32x32", "64x64", "64x128", "128x64", "128x128"]
+MatrixPreset = Literal["8x8", "16x16", "32x32", "64x64", "64x96", "64x128", "128x64", "128x128"]
 PatternName = Literal["waves", "pulse", "fractal_julia", "living_drawing"]
 LedShape = Literal["circle", "square"]
 OutputMode = Literal["simulator"]

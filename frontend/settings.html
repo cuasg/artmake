@@ -14,6 +14,11 @@
           <div class="brandSub">FPS, caps, colors, speeds, matrix, OpenAI</div>
         </div>
         <div class="topBarActions">
+          <div id="settingsCommitBar" class="commitBar" hidden>
+            <span class="badge bad">Unsaved changes</span>
+            <button id="btnDiscardSettings" class="btn" type="button">Discard</button>
+            <button id="btnCommitSettings" class="btn primary" type="button">Save changes</button>
+          </div>
           <a href="/" class="btn ghost" style="text-decoration:none; display:inline-flex; align-items:center">Back to Simulator</a>
           <a href="/gallery.html" class="btn ghost" style="text-decoration:none; display:inline-flex; align-items:center">Gallery</a>
         </div>
@@ -77,9 +82,11 @@
             <label class="field" style="margin-top: 10px">
               <span class="fieldLabel">Matrix preset</span>
               <select id="selMatrixPreset">
+                <option value="8x8">8 × 8</option>
                 <option value="16x16">16 × 16</option>
                 <option value="32x32">32 × 32</option>
                 <option value="64x64">64 × 64</option>
+                <option value="64x96">64 × 96</option>
                 <option value="64x128">64 × 128</option>
                 <option value="128x64">128 × 64</option>
                 <option value="128x128">128 × 128</option>

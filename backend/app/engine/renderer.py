@@ -251,15 +251,69 @@ class FrameRenderer:
                 stored = lib.load_toolpath(image_id, w, h, src)
                 if stored:
                     break
+
+            # Fallback: if the exact size variant doesn't exist yet, try another saved size
+            # and scale it to the requested matrix. This makes matrix switching feel better
+            # while variants are being generated.
+            if stored is None:
+                try:
+                    variants = lib.list_toolpaths(image_id)
+                except Exception:
+                    variants = []
+                # Only consider preferred sources
+                candidates = [
+                    v
+                    for v in variants
+                    if isinstance(v, dict)
+                    and int(v.get("w") or 0) > 0
+                    and int(v.get("h") or 0) > 0
+                    and (v.get("source") in preferred)
+                ]
+                if candidates:
+                    def score(vv: dict) -> float:
+                        vw = float(vv.get("w") or 1)
+                        vh = float(vv.get("h") or 1)
+                        # favor closest aspect ratio, then closest area
+                        ar = abs((vw / vh) - (float(w) / float(h)))
+                        area = abs((vw * vh) - (float(w) * float(h))) / max(1.0, float(w) * float(h))
+                        return ar * 3.0 + area
+
+                    best = sorted(candidates, key=score)[0]
+                    bw = int(best.get("w"))
+                    bh = int(best.get("h"))
+                    bsrc = str(best.get("source"))
+                    stored = lib.load_toolpath(image_id, bw, bh, bsrc)
+                    if isinstance(stored, dict):
+                        stored = {**stored, "_scaled_from": {"w": bw, "h": bh, "source": bsrc}}
         if isinstance(stored, dict):
+            scaled_from = stored.get("_scaled_from") if isinstance(stored.get("_scaled_from"), dict) else None
+            sw = int(scaled_from.get("w")) if scaled_from else w
+            sh = int(scaled_from.get("h")) if scaled_from else h
+            sx = float(w) / float(sw) if sw else 1.0
+            sy = float(h) / float(sh) if sh else 1.0
+
+            def _scale_pts(arr: list) -> list:
+                out: list = []
+                for pt in arr:
+                    if not isinstance(pt, (list, tuple)) or len(pt) != 2:
+                        continue
+                    x = int(round(float(pt[0]) * sx))
+                    y = int(round(float(pt[1]) * sy))
+                    out.append([x, y])
+                return out
+
             raw_strokes = stored.get("expanded_strokes")
             if isinstance(raw_strokes, list) and raw_strokes:
+                if scaled_from:
+                    raw_strokes = [_scale_pts(s) for s in raw_strokes if isinstance(s, list)]
                 strokes = self._strokes_from_json(raw_strokes)
                 if strokes:
                     flat = [p for s in strokes for p in s]
                     return DrawingProgram(strokes=strokes, flat_points=flat, width=w, height=h)
             raw_pts = stored.get("expanded_points")
             if isinstance(raw_pts, list) and raw_pts:
+                if scaled_from:
+                    raw_pts = _scale_pts(raw_pts)
                 pts = self._points_from_json_list(raw_pts)
                 if pts:
                     return DrawingProgram(strokes=[pts], flat_points=pts, width=w, height=h)

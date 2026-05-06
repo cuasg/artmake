@@ -12,6 +12,8 @@ const state = {
   lastFrame: null,
   lastSettings: null,
   patterns: [],
+  // Settings page drafts (only committed when user clicks Save)
+  draftPatch: null,
   // Controls are often updated from server frame payloads; we must not
   // overwrite a user edit mid-drag. We track "recent local edits" per control.
   uiLocks: new Set(),
@@ -35,6 +37,36 @@ const state = {
   inFlightPatch: null,
   inFlightSince: 0,
 };
+
+function isSettingsPage() {
+  try {
+    return window.location && String(window.location.pathname || "").toLowerCase().endsWith("/settings.html");
+  } catch (_) {
+    return false;
+  }
+}
+
+function setCommitBarVisible(on) {
+  const bar = $("settingsCommitBar");
+  if (bar) bar.hidden = !on;
+}
+
+function stageOrSendSettingsPatch(patch, opts = { immediate: false }) {
+  if (!isSettingsPage()) {
+    queueSettingsPatch(patch, opts);
+    return;
+  }
+
+  // Stage locally until Save is clicked.
+  state.draftPatch = deepMerge(state.draftPatch || {}, patch);
+  setCommitBarVisible(true);
+
+  // Optimistic UI on settings page too.
+  if (state.lastSettings) {
+    const merged = deepMerge(state.lastSettings, state.draftPatch);
+    applySettingsToUI(merged);
+  }
+}
 
 function wsUrl() {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -86,6 +118,8 @@ async function apiUpload(path, file, opts = {}) {
   fd.append("file", file);
   const label = (opts.label || "").trim();
   if (label) fd.append("label", label);
+  const cropFocus = (opts.crop_focus || "").trim();
+  if (cropFocus) fd.append("crop_focus", cropFocus);
   const res = await fetch(path, { method: "POST", body: fd });
   if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
   return await res.json();
@@ -153,7 +187,8 @@ function applySettingsToUI(settings) {
     return Date.now() - t < windowMs;
   };
 
-  $("statusOutput").textContent = settings?.output?.mode || "simulator";
+  // Simulator status bar exists only on the main page.
+  if ($("statusOutput")) $("statusOutput").textContent = settings?.output?.mode || "simulator";
   setText("statusOutput", settings?.output?.mode || "simulator");
   setText("statusRunning", settings?.running ? "running" : "stopped");
   setText("statusMatrix", formatMatrix(settings));
@@ -334,6 +369,11 @@ function sanitizeSettingsPatchForApi(patch) {
 
 function initCanvas() {
   state.canvas.el = $("matrixCanvas");
+  if (!state.canvas.el) {
+    // Settings page (and other pages) don't have a simulator canvas.
+    state.canvas.ctx = null;
+    return;
+  }
   state.canvas.ctx = state.canvas.el.getContext("2d", { alpha: false });
   resizeCanvasToCss();
   window.addEventListener("resize", () => resizeCanvasToCss());
@@ -341,6 +381,7 @@ function initCanvas() {
 
 function resizeCanvasToCss() {
   const canvas = state.canvas.el;
+  if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   state.canvas.dpr = dpr;
@@ -357,6 +398,7 @@ function resizeCanvasToCss() {
 
 function clearCanvas() {
   const { ctx, w, h } = state.canvas;
+  if (!ctx) return;
   ctx.fillStyle = "rgb(8,10,14)";
   ctx.fillRect(0, 0, w, h);
 }
@@ -364,6 +406,7 @@ function clearCanvas() {
 function drawFrame(frame) {
   if (!frame) return;
   const { ctx, w: cw, h: ch } = state.canvas;
+  if (!ctx) return;
   const mw = frame.width;
   const mh = frame.height;
   const pixels = frame.pixels;
@@ -608,6 +651,9 @@ function wireUi() {
       const updated = await apiPost("/api/control/stop");
       state.lastSettings = updated;
       applySettingsToUI(updated);
+      // Hard stop: discard any previous frame buffer so the next start redraws
+      // from scratch with the latest matrix/settings.
+      state.lastFrame = null;
       clearCanvas();
       setText("statusSeq", "—");
     } catch (e) { console.error(e); }
@@ -620,16 +666,16 @@ function wireUi() {
       if (hint) hint.textContent = "Type an API key, then click Save key.";
       return;
     }
-    queueSettingsPatch({ integrations: { openai: { api_key: v } } }, { immediate: true });
+    stageOrSendSettingsPatch({ integrations: { openai: { api_key: v } } }, { immediate: true });
     if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
   });
   $("btnClearOpenAiKey")?.addEventListener("click", () => {
-    queueSettingsPatch({ integrations: { openai: { api_key: "" } } }, { immediate: true });
+    stageOrSendSettingsPatch({ integrations: { openai: { api_key: "" } } }, { immediate: true });
     if ($("inpOpenAiApiKey")) $("inpOpenAiApiKey").value = "";
   });
   $("txtOpenAiModel")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("txtOpenAiModel", Date.now());
-    queueSettingsPatch({ integrations: { openai: { model: e.target.value.trim() } } });
+    stageOrSendSettingsPatch({ integrations: { openai: { model: e.target.value.trim() } } });
   });
 
   // Settings panel was removed; settings now live on /settings.html
@@ -637,42 +683,42 @@ function wireUi() {
   $("selPattern")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selPattern", Date.now());
     // Pattern switches should feel instant; trigger transition immediately.
-    queueSettingsPatch({ art: { pattern: e.target.value } }, { immediate: true });
+    stageOrSendSettingsPatch({ art: { pattern: e.target.value } }, { immediate: true });
     syncPhotoLineDrawingUi({ art: { pattern: e.target.value } });
   });
   $("rngBrightness")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 1);
     if ($("txtBrightness")) $("txtBrightness").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngBrightness", Date.now());
-    queueSettingsPatch({ art: { brightness: v } });
+    stageOrSendSettingsPatch({ art: { brightness: v } });
   });
   $("rngSpeed")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 5);
     if ($("txtSpeed")) $("txtSpeed").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngSpeed", Date.now());
-    queueSettingsPatch({ art: { speed: v } });
+    stageOrSendSettingsPatch({ art: { speed: v } });
   });
   $("numFps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 1, 120);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numFps", Date.now());
-    queueSettingsPatch({ stream: { fps: v } });
+    stageOrSendSettingsPatch({ stream: { fps: v } });
   });
   $("selAutoFps")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selAutoFps", Date.now());
     const on = e.target.value === "true";
-    queueSettingsPatch({ stream: { auto_fps: on } }, { immediate: true });
+    stageOrSendSettingsPatch({ stream: { auto_fps: on } }, { immediate: true });
   });
   $("numMaxFps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 1, 120);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numMaxFps", Date.now());
-    queueSettingsPatch({ stream: { max_fps: v } }, { immediate: true });
+    stageOrSendSettingsPatch({ stream: { max_fps: v } }, { immediate: true });
   });
   $("selAutoLearn")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selAutoLearn", Date.now());
     const on = e.target.value === "true";
-    queueSettingsPatch({ stream: { auto_learn: on } }, { immediate: true });
+    stageOrSendSettingsPatch({ stream: { auto_learn: on } }, { immediate: true });
   });
   $("btnResetLearned")?.addEventListener("click", async () => {
     try {
@@ -688,26 +734,26 @@ function wireUi() {
   $("selMatrixPreset")?.addEventListener("change", (e) => {
     // Backend uses preset to set width/height.
     state.lastLocalEditAt.set("selMatrixPreset", Date.now());
-    queueSettingsPatch({ matrix: { preset: e.target.value } }, { immediate: true });
+    stageOrSendSettingsPatch({ matrix: { preset: e.target.value } }, { immediate: true });
     clearCanvas();
     // If the last frame was from a different matrix size, discard it to prevent “stuck at 8×8” perception.
     state.lastFrame = null;
   });
   $("selLedShape")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selLedShape", Date.now());
-    queueSettingsPatch({ simulator: { led_shape: e.target.value } });
+    stageOrSendSettingsPatch({ simulator: { led_shape: e.target.value } });
   });
   $("rngLedSpacing")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 10);
     if ($("txtLedSpacing")) $("txtLedSpacing").textContent = String(v);
     state.lastLocalEditAt.set("rngLedSpacing", Date.now());
-    queueSettingsPatch({ simulator: { led_spacing: v } });
+    stageOrSendSettingsPatch({ simulator: { led_spacing: v } });
   });
   $("rngGlow")?.addEventListener("input", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 1);
     if ($("txtGlow")) $("txtGlow").textContent = v.toFixed(2);
     state.lastLocalEditAt.set("rngGlow", Date.now());
-    queueSettingsPatch({ simulator: { glow: v } });
+    stageOrSendSettingsPatch({ simulator: { glow: v } });
   });
 
   // Living drawing controls
@@ -719,6 +765,7 @@ function wireUi() {
       try {
         const uploaded = await apiUpload("/api/images/upload", f, {
           label: ($("inpUploadLabel")?.value || "").trim(),
+          crop_focus: ($("selCropFocus")?.value || "center").trim(),
         });
         await refreshDrawingList(uploaded && uploaded.id ? uploaded.id : null);
         if ($("inpUploadLabel")) $("inpUploadLabel").value = "";
@@ -743,13 +790,13 @@ function wireUi() {
       if ($("numHold")) artPatch.hold_seconds = Number($("numHold").value || 4);
       if ($("numErasePps")) artPatch.erase_pps = Number($("numErasePps").value || 800);
 
-      queueSettingsPatch({ art: artPatch }, { immediate: true });
+    stageOrSendSettingsPatch({ art: artPatch }, { immediate: true });
     });
   }
 
   $("selToolpathSource")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selToolpathSource", Date.now());
-    queueSettingsPatch({ art: { toolpath_source: e.target.value } }, { immediate: true });
+    stageOrSendSettingsPatch({ art: { toolpath_source: e.target.value } }, { immediate: true });
   });
 
   const gen = async (source) => {
@@ -781,7 +828,7 @@ function wireUi() {
     // If living drawing is active, switching library selection should switch the drawing immediately.
     const isLiving = state.lastSettings?.art?.pattern === "living_drawing";
     if (isLiving) {
-      queueSettingsPatch({ art: { drawing_id: id } }, { immediate: true });
+      stageOrSendSettingsPatch({ art: { drawing_id: id } }, { immediate: true });
     }
 
     // Update sidebar label immediately (without waiting for a server roundtrip)
@@ -800,25 +847,25 @@ function wireUi() {
   $("clrLine")?.addEventListener("input", (e) => {
     const v = String(e.target.value || "#b8d7ff");
     state.lastLocalEditAt.set("clrLine", Date.now());
-    queueSettingsPatch({ art: { line_color: v } }, { immediate: true });
+    stageOrSendSettingsPatch({ art: { line_color: v } }, { immediate: true });
   });
   $("numDrawPps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 10, 5000);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numDrawPps", Date.now());
-    queueSettingsPatch({ art: { draw_pps: v } });
+    stageOrSendSettingsPatch({ art: { draw_pps: v } });
   });
   $("numHold")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 0, 60);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numHold", Date.now());
-    queueSettingsPatch({ art: { hold_seconds: v } });
+    stageOrSendSettingsPatch({ art: { hold_seconds: v } });
   });
   $("numErasePps")?.addEventListener("change", (e) => {
     const v = clampNumber(Number(e.target.value), 10, 20000);
     e.target.value = String(v);
     state.lastLocalEditAt.set("numErasePps", Date.now());
-    queueSettingsPatch({ art: { erase_pps: v } });
+    stageOrSendSettingsPatch({ art: { erase_pps: v } });
   });
 
   const btnDelAi = $("btnDeleteAiToolpath");
@@ -930,18 +977,65 @@ function wireUi() {
       }
     });
   }
+
+  // Settings page commit/discard
+  const btnCommit = $("btnCommitSettings");
+  const btnDiscard = $("btnDiscardSettings");
+  const commitBar = $("settingsCommitBar");
+  if (btnCommit && btnDiscard && commitBar && isSettingsPage()) {
+    // If we land on settings with no draft, ensure hidden.
+    setCommitBarVisible(!!state.draftPatch);
+
+    btnCommit.addEventListener("click", async () => {
+      if (!state.draftPatch) return;
+      btnCommit.disabled = true;
+      btnDiscard.disabled = true;
+      try {
+        const updated = await apiPost("/api/settings", sanitizeSettingsPatchForApi(state.draftPatch));
+        state.lastSettings = updated;
+        state.draftPatch = null;
+        setCommitBarVisible(false);
+        applySettingsToUI(updated);
+      } catch (e) {
+        console.error(e);
+        window.alert(String(e && e.message ? e.message : e));
+      } finally {
+        btnCommit.disabled = false;
+        btnDiscard.disabled = false;
+      }
+    });
+
+    btnDiscard.addEventListener("click", async () => {
+      btnCommit.disabled = true;
+      btnDiscard.disabled = true;
+      try {
+        state.draftPatch = null;
+        setCommitBarVisible(false);
+        const s = await apiGet("/api/settings");
+        state.lastSettings = s;
+        applySettingsToUI(s);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        btnCommit.disabled = false;
+        btnDiscard.disabled = false;
+      }
+    });
+  }
 }
 
 async function loadInitialData() {
   const patterns = await apiGet("/api/patterns");
   state.patterns = patterns.patterns || [];
   const sel = $("selPattern");
-  sel.innerHTML = "";
-  for (const p of state.patterns) {
-    const opt = document.createElement("option");
-    opt.value = p.name;
-    opt.textContent = p.display_name;
-    sel.appendChild(opt);
+  if (sel) {
+    sel.innerHTML = "";
+    for (const p of state.patterns) {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.display_name;
+      sel.appendChild(opt);
+    }
   }
 
   const settings = await apiGet("/api/settings");

@@ -16,6 +16,9 @@ class ImageEntry:
     path: Path
     size_bytes: int
     label: str
+    crop_focus: str
+    parent_id: str | None = None
+    kind: str = "original"
 
 
 _LABEL_MAX = 120
@@ -73,6 +76,35 @@ class ImageLibrary:
                 return _sanitize_label(lab, self._default_label(image_id, original_stem))
         return self._default_label(image_id, original_stem)
 
+    def _crop_focus_for_id(self, image_id: str) -> str:
+        catalog = self._load_catalog()
+        entry = catalog.get(image_id)
+        if isinstance(entry, dict):
+            cf = entry.get("crop_focus")
+            if isinstance(cf, str) and cf.strip():
+                v = cf.strip().lower()
+                if v in ("center", "left", "right", "top", "bottom"):
+                    return v
+        return "center"
+
+    def _parent_for_id(self, image_id: str) -> str | None:
+        catalog = self._load_catalog()
+        entry = catalog.get(image_id)
+        if isinstance(entry, dict):
+            pid = entry.get("parent_id")
+            if isinstance(pid, str) and pid.strip():
+                return pid.strip()
+        return None
+
+    def _kind_for_id(self, image_id: str) -> str:
+        catalog = self._load_catalog()
+        entry = catalog.get(image_id)
+        if isinstance(entry, dict):
+            k = entry.get("kind")
+            if isinstance(k, str) and k.strip():
+                return k.strip()
+        return "original"
+
     def set_label(self, image_id: str, label: str) -> str:
         e = self._entry_from_disk(image_id)
         if not e:
@@ -82,6 +114,22 @@ class ImageLibrary:
         catalog[str(image_id)] = {"label": clean}
         self._save_catalog(catalog)
         return clean
+
+    def set_crop_focus(self, image_id: str, crop_focus: str) -> str:
+        e = self._entry_from_disk(image_id)
+        if not e:
+            raise ValueError("Image not found")
+        v = (crop_focus or "").strip().lower()
+        if v not in ("center", "left", "right", "top", "bottom"):
+            raise ValueError("Invalid crop_focus")
+        catalog = self._load_catalog()
+        cur = catalog.get(str(image_id)) if isinstance(catalog.get(str(image_id)), dict) else {}
+        if not isinstance(cur, dict):
+            cur = {}
+        cur = {**cur, "crop_focus": v}
+        catalog[str(image_id)] = cur
+        self._save_catalog(catalog)
+        return v
 
     def _entry_from_disk(self, image_id: str) -> Optional[ImageEntry]:
         for p in sorted(self.images_dir.glob("*")):
@@ -97,15 +145,30 @@ class ImageLibrary:
     def _to_entry(self, path: Path) -> ImageEntry:
         img_id = path.stem
         label = self._label_for_id(img_id, "")
+        crop_focus = self._crop_focus_for_id(img_id)
+        parent_id = self._parent_for_id(img_id)
+        kind = self._kind_for_id(img_id)
         return ImageEntry(
             id=img_id,
             filename=path.name,
             path=path,
             size_bytes=path.stat().st_size,
             label=label,
+            crop_focus=crop_focus,
+            parent_id=parent_id,
+            kind=kind,
         )
 
-    def save_upload(self, original_filename: str, content: bytes, label: str | None = None) -> ImageEntry:
+    def save_upload(
+        self,
+        original_filename: str,
+        content: bytes,
+        label: str | None = None,
+        *,
+        crop_focus: str | None = None,
+        parent_id: str | None = None,
+        kind: str | None = None,
+    ) -> ImageEntry:
         img_id = self._hash_bytes(content)
         safe_name = os.path.basename(original_filename).replace("\\", "_").replace("/", "_")
         ext = Path(safe_name).suffix.lower()
@@ -116,16 +179,38 @@ class ImageLibrary:
         path = self.images_dir / filename
         stem_guess = Path(safe_name).stem or ""
         proposed = _sanitize_label(label, self._default_label(img_id, stem_guess))
+        cf = (crop_focus or "").strip().lower() if crop_focus is not None else None
+        if cf is not None and cf not in ("center", "left", "right", "top", "bottom"):
+            cf = "center"
+        parent_clean = (parent_id or "").strip() or None
+        kind_clean = (kind or "").strip() or "original"
 
         if not path.exists():
             path.write_bytes(content)
             catalog = self._load_catalog()
-            catalog[img_id] = {"label": proposed}
+            meta: Dict[str, Any] = {"label": proposed}
+            if cf:
+                meta["crop_focus"] = cf
+            if parent_clean:
+                meta["parent_id"] = parent_clean
+            if kind_clean:
+                meta["kind"] = kind_clean
+            catalog[img_id] = meta
             self._save_catalog(catalog)
         elif label is not None and label.strip():
             # Same bytes re-uploaded: refresh display name if user supplied one.
             catalog = self._load_catalog()
-            catalog[img_id] = {"label": proposed}
+            cur = catalog.get(img_id) if isinstance(catalog.get(img_id), dict) else {}
+            if not isinstance(cur, dict):
+                cur = {}
+            cur["label"] = proposed
+            if cf:
+                cur["crop_focus"] = cf
+            if parent_clean:
+                cur["parent_id"] = parent_clean
+            if kind_clean:
+                cur["kind"] = kind_clean
+            catalog[img_id] = cur
             self._save_catalog(catalog)
 
         return self._to_entry(path)

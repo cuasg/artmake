@@ -40,6 +40,14 @@ def image_to_points(image_path: Path, w: int, h: int, threshold: float = 0.22) -
     return pts
 
 
+def image_to_points_img(img: Image.Image, w: int, h: int, threshold: float = 0.22) -> List[Point]:
+    gray = _resize_grayscale(img, w, h)
+    edges = _edge_map(gray)
+    ys, xs = np.where(edges >= threshold)
+    pts: List[Point] = [(int(x), int(y)) for x, y in zip(xs.tolist(), ys.tolist())]
+    return pts
+
+
 def order_points_nearest(pts: List[Point], max_len: int = 20000) -> List[Point]:
     """
     Greedy nearest-neighbor ordering to form a single continuous-ish polyline.

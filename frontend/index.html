@@ -74,11 +74,35 @@
               <select id="selPattern"></select>
             </label>
 
+            <label class="field" style="margin-top:12px">
+              <span class="fieldLabel">Matrix</span>
+              <select id="selMatrixPreset">
+                <option value="8x8">8 × 8</option>
+                <option value="16x16">16 × 16</option>
+                <option value="32x32">32 × 32</option>
+                <option value="64x64">64 × 64</option>
+                <option value="64x96">64 × 96</option>
+                <option value="64x128">64 × 128</option>
+                <option value="128x64">128 × 64</option>
+                <option value="128x128">128 × 128</option>
+              </select>
+            </label>
+
             <div id="photoControls" class="settingsGroup" style="margin-top:12px; display:none">
               <div class="groupTitle">Photo</div>
               <label class="field">
                 <span class="fieldLabel">Upload (optional name)</span>
                 <input id="inpUploadLabel" type="text" maxlength="120" placeholder="e.g. Face line art" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Crop focus (for square versions)</span>
+                <select id="selCropFocus">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom</option>
+                </select>
               </label>
               <label class="field">
                 <span class="fieldLabel">File</span>
