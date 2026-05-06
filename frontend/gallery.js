@@ -652,8 +652,8 @@ async function main() {
       cropRow.appendChild(cropLab);
 
       const selCrop = document.createElement("select");
-      selCrop.className = "btn";
-      selCrop.style.padding = "8px 10px";
+      selCrop.className = "gallerySelect";
+      selCrop.setAttribute("aria-label", "Crop focus");
       const opts = [
         ["center", "Center"],
         ["left", "Left"],
@@ -704,8 +704,8 @@ async function main() {
       colorRow.appendChild(colorLab);
 
       const selMode = document.createElement("select");
-      selMode.className = "btn";
-      selMode.style.padding = "8px 10px";
+      selMode.className = "gallerySelect";
+      selMode.setAttribute("aria-label", "Line art color mode");
       const optInherit = document.createElement("option");
       optInherit.value = "inherit";
       optInherit.textContent = "Simulator default";
@@ -721,10 +721,8 @@ async function main() {
 
       const inpCol = document.createElement("input");
       inpCol.type = "color";
-      inpCol.className = "btn";
-      inpCol.style.padding = "2px";
-      inpCol.style.height = "34px";
-      inpCol.style.cursor = "pointer";
+      inpCol.className = "galleryColorInput";
+      inpCol.setAttribute("aria-label", "Custom line art color");
 
       const lacRaw = vectorSource.line_art_display_color;
       const lacLower = lacRaw != null ? String(lacRaw).toLowerCase().trim() : "";
@@ -849,9 +847,9 @@ async function main() {
       top.className = "btnRow";
 
       const sel = document.createElement("select");
-      sel.className = "btn";
-      sel.style.padding = "8px 10px";
+      sel.className = "gallerySelect";
       sel.style.maxWidth = "100%";
+      sel.setAttribute("aria-label", "Matrix preset for preview");
 
       // Build options from presets; disable sizes that don't exist yet.
       const avail = new Set((variants || []).map((v) => `${v.w}x${v.h}`));

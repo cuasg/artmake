@@ -586,7 +586,33 @@ input[type="range"] { width: 100%; }
   border-radius: 16px;
   padding: 12px;
   box-shadow: 0 18px 60px var(--shadow);
-  overflow: hidden;
+  /* Don't clip: overflow:hidden breaks native <select> menus and color inputs on some browsers. */
+  overflow: visible;
+}
+
+/* Gallery form controls: avoid styling <select> like .btn (hurts native dropdown / hit-testing). */
+.gallerySelect {
+  min-width: 11rem;
+  max-width: 100%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.galleryColorInput {
+  box-sizing: border-box;
+  width: 48px;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.galleryColorInput:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .galleryThumb {
