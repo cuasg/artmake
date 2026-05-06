@@ -91,6 +91,49 @@ html, body {
 }
 .btn.ghost { background: transparent; }
 
+.progressWrap {
+  margin-top: 10px;
+  padding: 10px 10px 12px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.18);
+  border-radius: 14px;
+}
+
+.progressTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.progressTrack {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+}
+
+.progressBar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(120,166,255,0.65), rgba(158,230,214,0.55));
+  transition: width 160ms ease;
+}
+
+.progressBar.indeterminate {
+  width: 40%;
+  animation: progressSlide 1.05s ease-in-out infinite;
+}
+
+@keyframes progressSlide {
+  0% { transform: translateX(-40%); }
+  50% { transform: translateX(120%); }
+  100% { transform: translateX(-40%); }
+}
+
 .main {
   flex: 1;
   min-height: 0;

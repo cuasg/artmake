@@ -5,6 +5,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import os
+import asyncio
+import uuid
+from dataclasses import dataclass
 
 from app.ai.openai_toolpath import OpenAIRequestError, ToolpathParseError, refine_toolpath_with_openai, validate_strokes, validate_toolpath
 from app.ai.openai_image_stylize import OpenAIImageError, stylize_photo_to_lineart_png
@@ -58,6 +61,37 @@ def build_routes(
         (128, 128),
         (64, 96),
     ]
+
+    @dataclass
+    class JobState:
+        id: str
+        kind: str
+        image_id: str
+        total: int
+        done: int = 0
+        status: str = "running"  # running|done|error
+        status_label: str = "Working"
+        current: str | None = None
+        error: str | None = None
+
+    jobs: dict[str, JobState] = {}
+
+    @router.get("/jobs/{job_id}")
+    async def jobs_get(job_id: str) -> dict:
+        j = jobs.get(job_id)
+        if not j:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {
+            "id": j.id,
+            "kind": j.kind,
+            "image_id": j.image_id,
+            "total": int(j.total),
+            "done": int(j.done),
+            "status": j.status,
+            "status_label": j.status_label,
+            "current": j.current,
+            "error": j.error,
+        }
 
     def _save_local_toolpath(image_id: str, img_path, w: int, h: int, source: str) -> int:
         """
@@ -213,26 +247,47 @@ def build_routes(
     ) -> dict:
         content = await file.read()
         saved = image_library.save_upload(file.filename or "upload.bin", content, label=label, crop_focus=crop_focus)
-        # Auto-generate local variants for common matrix sizes so the Gallery has previews immediately.
-        # (AI variants are opt-in because they require a key and can be slow/paid.)
-        generated: list[dict] = []
-        try:
-            for (w, h) in DEFAULT_PRESETS:
-                source = "vectorized"
-                if image_library.load_toolpath(saved.id, w, h, source):
-                    continue
-                strokes_n = _save_local_toolpath(saved.id, saved.path, w, h, source)
-                generated.append({"w": w, "h": h, "source": source, "strokes": int(strokes_n)})
-        except Exception:
-            # Don't fail upload if generation fails; user can regenerate from Gallery.
-            pass
+        # Kick off local preset generation asynchronously so UI doesn't block.
+        job_id = uuid.uuid4().hex
+        job = JobState(
+            id=job_id,
+            kind="upload_presets",
+            image_id=saved.id,
+            total=len(DEFAULT_PRESETS),
+            status="running",
+            status_label="Generating vectorized presets",
+        )
+        jobs[job_id] = job
+
+        async def _run() -> None:
+            try:
+                for (w, h) in DEFAULT_PRESETS:
+                    job.current = f"{w}×{h}"
+                    source = "vectorized"
+                    if image_library.load_toolpath(saved.id, w, h, source):
+                        job.done += 1
+                        continue
+                    # CPU-heavy: run in thread so we don't stall the event loop.
+                    await asyncio.to_thread(_save_local_toolpath, saved.id, saved.path, w, h, source)
+                    job.done += 1
+            except Exception as e:
+                job.status = "error"
+                job.error = str(e)
+                job.status_label = "Failed"
+                return
+            job.status = "done"
+            job.status_label = "Done"
+            job.current = None
+            renderer.invalidate_living_drawing(saved.id)
+
+        asyncio.create_task(_run())
 
         return {
             "id": saved.id,
             "filename": saved.filename,
             "size_bytes": saved.size_bytes,
             "label": saved.label,
-            "generated": generated,
+            "job_id": job_id,
         }
 
     def _clear_drawing_if_match(image_id: str):

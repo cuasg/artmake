@@ -108,6 +108,20 @@
                 <span class="fieldLabel">File</span>
                 <input id="fileUpload" type="file" accept="image/*" />
               </label>
+              <div class="btnRow" style="align-items:center; margin-top:10px">
+                <button id="btnUploadSave" class="btn primary" type="button" disabled>Save upload</button>
+                <button id="btnUploadClear" class="btn" type="button" disabled>Clear</button>
+                <div id="txtUploadPicked" class="muted" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></div>
+              </div>
+              <div id="uploadProgressWrap" class="progressWrap" hidden>
+                <div class="progressTop">
+                  <div id="txtUploadProgress" class="muted">Uploading…</div>
+                  <div id="txtUploadProgressPct" class="muted">0%</div>
+                </div>
+                <div class="progressTrack">
+                  <div id="uploadProgressBar" class="progressBar" style="width:0%"></div>
+                </div>
+              </div>
               <label class="field">
                 <span class="fieldLabel">Library</span>
                 <select id="selDrawing"></select>
