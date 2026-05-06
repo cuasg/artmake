@@ -524,106 +524,131 @@ async function main() {
 
       card.appendChild(genRow);
       card.appendChild(statusLine);
-      if (!variants.length) {
-        const m = document.createElement("div");
-        m.className = "muted";
-        m.style.marginTop = "10px";
-        m.textContent = "No optimized versions yet. Use “Refine with ChatGPT” in the simulator.";
-        card.appendChild(m);
-      } else {
-        const listEl = document.createElement("div");
-        listEl.className = "variantList";
-        for (const v of variants) {
-          const row = document.createElement("div");
-          row.className = "variantRow";
+      const picker = document.createElement("div");
+      picker.className = "variantRow";
+      picker.style.marginTop = "10px";
 
-          const cv = document.createElement("canvas");
-          cv.className = "variantCanvas";
-          cv.width = 72;
-          cv.height = 72;
-          row.appendChild(cv);
+      const cv = document.createElement("canvas");
+      cv.className = "variantCanvas";
+      cv.width = 72;
+      cv.height = 72;
+      picker.appendChild(cv);
 
-          const info = document.createElement("div");
-          info.className = "variantInfo";
-          const lab = document.createElement("div");
-          lab.className = "galleryTitle";
-          lab.textContent = `${v.w}×${v.h} · ${v.source || "ai"}`;
-          const sub = document.createElement("div");
-          sub.className = "muted";
-          sub.textContent = `${v.strokes || 1} stroke(s), ${v.points || 0} pts`;
-          info.appendChild(lab);
-          info.appendChild(sub);
+      const info = document.createElement("div");
+      info.className = "variantInfo";
 
-          const actions = document.createElement("div");
-          actions.className = "variantActions";
-          const btn = document.createElement("button");
-          btn.className = "btn primary";
-          btn.type = "button";
-          btn.textContent = "Preview in Simulator";
-          btn.addEventListener("click", () => {
-            void applyVariantAndGoHome(vectorSource.id, v.w, v.h);
-          });
-          actions.appendChild(btn);
+      const top = document.createElement("div");
+      top.className = "btnRow";
 
-          const regen = document.createElement("button");
-          regen.className = "btn";
-          regen.type = "button";
-          const src = v.source || "ai";
-          regen.textContent = `Regenerate ${src}`;
-          regen.addEventListener("click", async () => {
-            regen.disabled = true;
-            try {
-              if (src === "ai") await generateAi(img.id, v.w, v.h);
-              else await generateLocal(vectorSource.id, v.w, v.h, src);
-              window.location.reload();
-            } catch (e) {
-              window.alert(String(e && e.message ? e.message : e));
-            } finally {
-              regen.disabled = false;
-            }
-          });
-          actions.appendChild(regen);
+      const sel = document.createElement("select");
+      sel.className = "btn";
+      sel.style.padding = "8px 10px";
+      sel.style.maxWidth = "100%";
 
-          const del = document.createElement("button");
-          del.className = "btn danger";
-          del.type = "button";
-          del.textContent = "Delete variant";
-          del.addEventListener("click", async () => {
-            if (!window.confirm(`Delete ${v.w}×${v.h} · ${src}?`)) return;
-            del.disabled = true;
-            try {
-              await apiDelete(
-                `/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(src)}`
-              );
-              window.location.reload();
-            } catch (e) {
-              window.alert(String(e && e.message ? e.message : e));
-            } finally {
-              del.disabled = false;
-            }
-          });
-          actions.appendChild(del);
+      // Build options from presets; disable sizes that don't exist yet.
+      const avail = new Set((variants || []).map((v) => `${v.w}x${v.h}`));
+      for (const p of PRESETS) {
+        const o = document.createElement("option");
+        o.value = `${p.w}x${p.h}`;
+        o.textContent = p.label;
+        if (!avail.has(o.value)) o.disabled = true;
+        sel.appendChild(o);
+      }
+      // Pick best default: 64x96 if available, else first available preset.
+      const prefer = ["64x96", "64x64", "32x32", "16x16", "8x8", "128x128"];
+      sel.value = prefer.find((x) => avail.has(x)) || (sel.querySelector("option:not([disabled])")?.value || "64x96");
+      top.appendChild(sel);
 
-          info.appendChild(actions);
-          row.appendChild(info);
+      const txt = document.createElement("div");
+      txt.className = "muted";
+      txt.style.minWidth = "0";
+      txt.style.flex = "1";
+      top.appendChild(txt);
 
-          // Load toolpath JSON for preview render
+      info.appendChild(top);
+
+      const actions = document.createElement("div");
+      actions.className = "variantActions";
+
+      const btnPreview = document.createElement("button");
+      btnPreview.className = "btn primary";
+      btnPreview.type = "button";
+      btnPreview.textContent = "Preview in Simulator";
+      actions.appendChild(btnPreview);
+
+      const btnRegen = document.createElement("button");
+      btnRegen.className = "btn";
+      btnRegen.type = "button";
+      btnRegen.textContent = "Regenerate";
+      actions.appendChild(btnRegen);
+
+      const btnDel = document.createElement("button");
+      btnDel.className = "btn danger";
+      btnDel.type = "button";
+      btnDel.textContent = "Delete";
+      actions.appendChild(btnDel);
+
+      info.appendChild(actions);
+      picker.appendChild(info);
+      card.appendChild(picker);
+
+      const renderSelected = async () => {
+        const v = String(sel.value || "");
+        const [wS, hS] = v.split("x");
+        const w = Number(wS);
+        const h = Number(hS);
+        const metaV = (variants || []).find((vv) => `${vv.w}x${vv.h}` === v) || null;
+        txt.textContent = metaV ? `${metaV.strokes || 1} stroke(s), ${metaV.points || 0} pts` : "—";
+        btnPreview.onclick = () => { void applyVariantAndGoHome(vectorSource.id, w, h); };
+
+        btnRegen.onclick = async () => {
+          btnRegen.disabled = true;
           try {
-            const tp = await apiGet(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${v.w}x${v.h}/${encodeURIComponent(v.source || "ai")}`);
-            drawToolpathPreview(cv, tp);
-            cv.style.cursor = "pointer";
-            cv.title = "Click to open large preview (copyable)";
-            cv.addEventListener("click", () => {
-              const name = vectorSource.label || vectorSource.id;
-              modal?.open(`${name} · ${v.w}×${v.h} · ${v.source || "ai"}`, tp);
-            });
-          } catch (_) {
-            // leave blank
+            await generateLocal(vectorSource.id, w, h, "vectorized");
+            window.location.reload();
+          } catch (e) {
+            window.alert(String(e && e.message ? e.message : e));
+          } finally {
+            btnRegen.disabled = false;
           }
+        };
 
-          listEl.appendChild(row);
+        btnDel.onclick = async () => {
+          if (!window.confirm(`Delete ${w}×${h} · vectorized?`)) return;
+          btnDel.disabled = true;
+          try {
+            await apiDelete(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${w}x${h}/vectorized`);
+            window.location.reload();
+          } catch (e) {
+            window.alert(String(e && e.message ? e.message : e));
+          } finally {
+            btnDel.disabled = false;
+          }
+        };
+
+        try {
+          const tp = await apiGet(`/api/images/${encodeURIComponent(vectorSource.id)}/toolpaths/${w}x${h}/vectorized`);
+          drawToolpathPreview(cv, tp);
+          cv.style.cursor = "pointer";
+          cv.title = "Click to open large preview (copyable)";
+          cv.onclick = () => {
+            const name = vectorSource.label || vectorSource.id;
+            modal?.open(`${name} · ${w}×${h} · vectorized`, tp);
+          };
+        } catch (_) {
+          // leave blank
         }
-        card.appendChild(listEl);
+      };
+
+      sel.addEventListener("change", () => { void renderSelected(); });
+      if (!variants.length) {
+        txt.textContent = "No vectorized variants yet. Use Generate above.";
+        sel.disabled = true;
+        btnPreview.disabled = true;
+        btnRegen.disabled = true;
+        btnDel.disabled = true;
+      } else {
+        void renderSelected();
       }
 
       grid.appendChild(card);

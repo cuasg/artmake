@@ -68,12 +68,20 @@ class FrameRenderer:
         self._image_library = image_library
         self._drawing_cached_id: str | None = None
         self._canvas_rgb: bytearray | None = None
+        # Living-drawing "ink fade-in" (smooth point appearance).
+        # We keep the target canvas at full intensity, and apply a short per-point ramp
+        # when producing the output buffer. This makes the draw feel less "poppy"
+        # without changing the underlying drawing program/state.
+        self._fade_level: bytearray | None = None  # 0..255 per pixel (255 = fully visible)
+        self._fade_active: List[int] = []  # pixel indices currently ramping
 
     def reset(self) -> None:
         self.state.reset()
         self.drawing = DrawingState()
         self._drawing_cached_id = None
         self._canvas_rgb = None
+        self._fade_level = None
+        self._fade_active = []
 
     def invalidate_living_drawing(self, image_id: str | None = None) -> None:
         """
@@ -141,6 +149,11 @@ class FrameRenderer:
                 self._canvas_rgb[i] = 0
                 self._canvas_rgb[i + 1] = 0
                 self._canvas_rgb[i + 2] = 0
+            self._fade_level = bytearray([255]) * (w * h)
+            self._fade_active = []
+        if self._fade_level is None or len(self._fade_level) != (w * h):
+            self._fade_level = bytearray([255]) * (w * h)
+            self._fade_active = []
 
         drawing_id = settings.art.drawing_id
         if drawing_id and drawing_id != self._drawing_cached_id and self._image_library:
@@ -163,6 +176,10 @@ class FrameRenderer:
                     self._canvas_rgb[i] = 0
                     self._canvas_rgb[i + 1] = 0
                     self._canvas_rgb[i + 2] = 0
+                if self._fade_level is not None:
+                    for i in range(len(self._fade_level)):
+                        self._fade_level[i] = 255
+                self._fade_active = []
 
         # No program yet: return blank
         if not self.drawing.program:
@@ -193,10 +210,15 @@ class FrameRenderer:
                 self.drawing.flat_idx = min(len(self.drawing.program.flat_points), self.drawing.flat_idx + 1)
                 remaining -= 1
                 if 0 <= x < w and 0 <= y < h:
-                    j = (y * w + x) * 3
+                    pix = (y * w + x)
+                    j = pix * 3
                     self._canvas_rgb[j] = r
                     self._canvas_rgb[j + 1] = g
                     self._canvas_rgb[j + 2] = b
+                    # Start a short fade-in ramp for this point.
+                    if self._fade_level is not None:
+                        self._fade_level[pix] = 0
+                        self._fade_active.append(pix)
 
             # Done drawing all strokes
             if self.drawing.program and self.drawing.stroke_idx >= len(self.drawing.program.strokes):
@@ -218,10 +240,13 @@ class FrameRenderer:
             for i in range(start_idx, self.drawing.flat_idx):
                 x, y = self.drawing.program.flat_points[i]
                 if 0 <= x < w and 0 <= y < h:
-                    j = (y * w + x) * 3
+                    pix = (y * w + x)
+                    j = pix * 3
                     self._canvas_rgb[j] = 0
                     self._canvas_rgb[j + 1] = 0
                     self._canvas_rgb[j + 2] = 0
+                    if self._fade_level is not None:
+                        self._fade_level[pix] = 255
             self.drawing.flat_idx = start_idx
             if self.drawing.flat_idx <= 0:
                 # loop: redraw same image for now
@@ -230,7 +255,33 @@ class FrameRenderer:
                 self.drawing.stroke_idx = 0
                 self.drawing.point_idx = 0
 
-        return w, h, bytes(self._canvas_rgb)
+        # Apply fade-in to newly drawn points.
+        if not self._fade_active or self._fade_level is None or self._canvas_rgb is None:
+            return w, h, bytes(self._canvas_rgb)
+
+        # Ramp duration (seconds) tuned to feel smooth across FPS.
+        fade_s = 0.14
+        fps = max(1.0, float(settings.stream.fps or 1.0))
+        steps = max(2, int(fps * fade_s))
+        inc = max(1, int(255 / steps))
+
+        out = bytearray(self._canvas_rgb)
+        next_active: List[int] = []
+        for pix in self._fade_active:
+            lvl = int(self._fade_level[pix])
+            if lvl < 255:
+                lvl = min(255, lvl + inc)
+                self._fade_level[pix] = lvl
+            if lvl < 255:
+                next_active.append(pix)
+            # Scale the point's target color by lvl.
+            j = pix * 3
+            out[j] = (out[j] * lvl) // 255
+            out[j + 1] = (out[j + 1] * lvl) // 255
+            out[j + 2] = (out[j + 2] * lvl) // 255
+
+        self._fade_active = next_active
+        return w, h, bytes(out)
 
     def _load_drawing_program(self, image_path: Path, image_id: str, w: int, h: int, source: str = "auto") -> DrawingProgram:
         lib = self._image_library
