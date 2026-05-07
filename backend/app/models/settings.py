@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 MatrixPreset = str  # keep permissive for backward-compatible config loads
-PatternName = Literal["waves", "pulse", "fractal_julia", "living_drawing"]
+PatternName = Literal["waves", "pulse", "fractal_julia", "living_drawing", "pixel_media", "camera_mirror"]
 LedShape = Literal["circle", "square"]
 OutputMode = Literal["simulator", "raspberry_pi"]
 PhotoPlaybackMode = Literal["selected", "album"]
@@ -50,6 +50,10 @@ class ArtSettings(BaseModel):
     erase_pps: float = Field(default=800.0, ge=10.0, le=20000.0)
     line_color: str = Field(default="#b8d7ff")  # css hex
     toolpath_source: Literal["auto", "ai", "vectorized"] = "auto"
+    # Full-color media modes (pixel_media / camera_mirror)
+    media_filter: Literal["none", "pixel", "pixel_dither", "mono"] = "pixel"
+    media_fps_cap: int = Field(default=15, ge=1, le=60)
+    camera_fps_cap: int = Field(default=10, ge=1, le=30)
 
 
 class SimulatorSettings(BaseModel):

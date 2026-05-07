@@ -18,6 +18,9 @@ from app.engine.line_draw import (
 )
 from app.engine.path_stitch import normalize_ai_strokes, normalize_ai_toolpath
 from app.image_library import ImageLibrary
+from app.camera_service import CameraService
+from PIL import Image, ImageSequence
+import io
 
 
 def _scale_u8(c: int, brightness: float) -> int:
@@ -64,10 +67,11 @@ class RenderState:
 
 
 class FrameRenderer:
-    def __init__(self, image_library: ImageLibrary | None = None) -> None:
+    def __init__(self, image_library: ImageLibrary | None = None, camera_service: CameraService | None = None) -> None:
         self.state = RenderState()
         self.drawing = DrawingState()
         self._image_library = image_library
+        self._camera_service = camera_service
         self._drawing_cached_id: str | None = None
         self._canvas_rgb: bytearray | None = None
         # Living-drawing "ink fade" (smooth point appearance/disappearance).
@@ -83,6 +87,12 @@ class FrameRenderer:
         self._drawing_use_global_line_color: bool = True
         self._drawing_line_rgb: tuple[int, int, int] | None = None
         self._drawing_line_spec: str | None = None
+        # Camera mirror cache: avoid decoding/resizing every frame render tick.
+        self._cam_last_ts: float = 0.0
+        self._cam_last_wh: tuple[int, int] = (0, 0)
+        self._cam_last_filter: str = ""
+        self._cam_last_brightness: float = -1.0
+        self._cam_last_rgb: bytes | None = None
 
     def reset(self) -> None:
         self.state.reset()
@@ -97,6 +107,11 @@ class FrameRenderer:
         self._fade_out_active = []
         self._fade_pending_clear = set()
         self._living_cycle_completed = False
+        self._cam_last_ts = 0.0
+        self._cam_last_wh = (0, 0)
+        self._cam_last_filter = ""
+        self._cam_last_brightness = -1.0
+        self._cam_last_rgb = None
 
     def take_living_cycle_completed(self) -> bool:
         """Consume one-shot signal: living drawing completed a full draw→hold→erase cycle."""
@@ -126,6 +141,10 @@ class FrameRenderer:
         # Living drawing mode: a toolpath that accumulates on a persistent canvas.
         if settings.art.pattern == "living_drawing":
             return self._render_living_drawing(settings)
+        if settings.art.pattern == "pixel_media":
+            return self._render_pixel_media(settings)
+        if settings.art.pattern == "camera_mirror":
+            return self._render_camera_mirror(settings)
 
         t = self.state.now_t(settings.art.speed)
         brightness = settings.art.brightness
@@ -160,6 +179,102 @@ class FrameRenderer:
                 i += 3
 
         return w, h, bytes(buf)
+
+    def _render_pixel_media(self, settings: RuntimeSettings) -> tuple[int, int, bytes]:
+        """
+        Render a still image or animated GIF as full-color pixels.
+        Uses settings.art.drawing_id as the media id (same library selection as living_drawing).
+        """
+        w = int(settings.matrix.width)
+        h = int(settings.matrix.height)
+        media_id = settings.art.drawing_id
+        if not media_id or not self._image_library:
+            return w, h, bytes(bytearray(w * h * 3))
+
+        entry = self._image_library.get(media_id)
+        if not entry:
+            return w, h, bytes(bytearray(w * h * 3))
+
+        try:
+            raw = entry.path.read_bytes()
+        except Exception:
+            return w, h, bytes(bytearray(w * h * 3))
+
+        now = time.time()
+        # Cap animation speed independently from stream fps.
+        fps_cap = max(1, int(settings.art.media_fps_cap or 1))
+        # Quantize time to reduce per-frame overhead when ws fps is high.
+        t = (now - self.state.t0)
+        t = round(t * fps_cap) / float(fps_cap)
+
+        try:
+            im = Image.open(io.BytesIO(raw))
+        except Exception:
+            return w, h, bytes(bytearray(w * h * 3))
+
+        try:
+            if getattr(im, "is_animated", False):
+                # pick frame by elapsed time and per-frame duration
+                durations = []
+                frames = []
+                for fr in ImageSequence.Iterator(im):
+                    frames.append(fr.copy())
+                    d = int(fr.info.get("duration") or im.info.get("duration") or 80)
+                    durations.append(max(10, d))
+                total_ms = sum(durations) if durations else 1
+                pos = int((t * 1000.0) % total_ms)
+                acc = 0
+                idx = 0
+                for i, d in enumerate(durations):
+                    acc += d
+                    if pos < acc:
+                        idx = i
+                        break
+                frame = frames[idx]
+            else:
+                frame = im
+
+            rgb = frame.convert("RGB")
+            rgb = rgb.resize((w, h), resample=Image.Resampling.NEAREST)
+            return w, h, _apply_media_filter(rgb, settings)
+        except Exception:
+            return w, h, bytes(bytearray(w * h * 3))
+
+    def _render_camera_mirror(self, settings: RuntimeSettings) -> tuple[int, int, bytes]:
+        """
+        Camera frame is pushed from browser; stored in-memory in CameraService.
+        """
+        w = int(settings.matrix.width)
+        h = int(settings.matrix.height)
+        if not self._camera_service:
+            return w, h, bytes(bytearray(w * h * 3))
+        b, ts, ct = self._camera_service.get_frame()
+        # Allow a little more slack to avoid flicker if the browser drops a frame.
+        if not b or (time.time() - float(ts)) > 6.0:
+            return w, h, bytes(bytearray(w * h * 3))
+        filt = str(getattr(settings.art, "media_filter", "pixel") or "pixel").strip().lower()
+        bright = float(getattr(settings.art, "brightness", 1.0) or 1.0)
+        # If nothing meaningful changed, reuse last computed matrix RGB bytes.
+        if (
+            float(ts) == float(self._cam_last_ts)
+            and self._cam_last_wh == (w, h)
+            and self._cam_last_filter == filt
+            and abs(self._cam_last_brightness - bright) < 1e-6
+            and self._cam_last_rgb is not None
+        ):
+            return w, h, self._cam_last_rgb
+        try:
+            im = Image.open(io.BytesIO(b))
+            rgb = im.convert("RGB").resize((w, h), resample=Image.Resampling.NEAREST)
+            out = _apply_media_filter(rgb, settings)
+            self._cam_last_ts = float(ts)
+            self._cam_last_wh = (w, h)
+            self._cam_last_filter = filt
+            self._cam_last_brightness = bright
+            self._cam_last_rgb = out
+            return w, h, out
+        except Exception:
+            return w, h, bytes(bytearray(w * h * 3))
 
     def _render_living_drawing(self, settings: RuntimeSettings) -> tuple[int, int, bytes]:
         w = settings.matrix.width
@@ -542,4 +657,50 @@ def _hex_to_rgb(s: str) -> tuple[int, int, int]:
         return (r, g, b)
     except Exception:
         return (184, 215, 255)
+
+
+def _apply_media_filter(img: Image.Image, settings: RuntimeSettings) -> bytes:
+    """
+    Convert a W×H RGB Pillow image into packed RGB bytes, applying a lightweight
+    “matrix look” filter.
+    """
+    w = int(settings.matrix.width)
+    h = int(settings.matrix.height)
+    filt = str(getattr(settings.art, "media_filter", "pixel") or "pixel").strip().lower()
+    brightness = float(getattr(settings.art, "brightness", 1.0) or 1.0)
+
+    # Get raw pixels
+    px = img.load()
+    out = bytearray(w * h * 3)
+
+    # Simple ordered dithering for a “LED/pixel art” feel (does not reduce gamut hard).
+    bayer4 = [
+        [0, 8, 2, 10],
+        [12, 4, 14, 6],
+        [3, 11, 1, 9],
+        [15, 7, 13, 5],
+    ]
+
+    i = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+
+            if filt == "mono":
+                v = int(0.2126 * r + 0.7152 * g + 0.0722 * b)
+                r = g = b = v
+            elif filt == "pixel_dither":
+                t = bayer4[y & 3][x & 3] / 16.0  # 0..~0.94
+                bump = int((t - 0.5) * 22)  # subtle
+                r = max(0, min(255, r + bump))
+                g = max(0, min(255, g + bump))
+                b = max(0, min(255, b + bump))
+            # "none" and "pixel" both just keep nearest-neighbor result.
+
+            out[i] = _scale_u8(int(r), brightness)
+            out[i + 1] = _scale_u8(int(g), brightness)
+            out[i + 2] = _scale_u8(int(b), brightness)
+            i += 3
+
+    return bytes(out)
 

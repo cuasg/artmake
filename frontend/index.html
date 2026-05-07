@@ -121,15 +121,27 @@
                 <span class="fieldLabel">Library</span>
                 <select id="selDrawing"></select>
               </label>
+              <label class="field" style="margin-top:10px">
+                <span class="fieldLabel">Mode</span>
+                <select id="selPhotoMode">
+                  <option value="living_drawing">Living drawing (line art)</option>
+                  <option value="pixel_media">Pixel media (full color)</option>
+                  <option value="camera_mirror">Camera mirror (live)</option>
+                </select>
+              </label>
               <div class="muted" style="margin-top:6px;font-size:11px">
-                Previous / Next step through photos that have a <strong>vectorized</strong> preset for the current matrix size (same order as Pi album).
+                <span id="txtAlbumHint">Previous / Next step through photos that have a <strong>vectorized</strong> preset for the current matrix size (same order as Pi album).</span>
               </div>
               <div class="btnRow" style="margin-top:8px;flex-wrap:wrap">
                 <button id="btnAlbumPrev" class="btn" type="button" title="Previous in album">Previous</button>
                 <button id="btnAlbumNext" class="btn" type="button" title="Next in album">Next</button>
               </div>
               <div class="btnRow">
-                <button id="btnUseLivingDrawing" class="btn primary" type="button">Show selected photo</button>
+                <button id="btnApplyPhotoMode" class="btn primary" type="button">Apply</button>
+              </div>
+              <div class="btnRow">
+                <button id="btnEnableCamera" class="btn" type="button">Enable camera mirror</button>
+                <div id="txtCameraStatus" class="muted btnRow-fill uiEllipsis"></div>
               </div>
               <div id="photoPatternHint" class="patternHint" aria-live="polite"></div>
             </div>

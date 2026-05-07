@@ -183,6 +183,31 @@ async function apiUpload(path, file, opts = {}) {
   return await res.json();
 }
 
+async function apiUploadFile(path, file, { field = "file" } = {}) {
+  const fd = new FormData();
+  fd.append(field, file);
+  const res = await fetch(path, { method: "POST", body: fd });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data && data.detail;
+    throw new Error(typeof detail === "string" ? detail : `POST ${path} failed (${res.status})`);
+  }
+  return data;
+}
+
+async function apiUploadBlob(path, blob, { field = "file", filename = "blob.bin", contentType = "" } = {}) {
+  const fd = new FormData();
+  const b = blob && contentType ? new Blob([blob], { type: contentType }) : blob;
+  fd.append(field, b, filename);
+  const res = await fetch(path, { method: "POST", body: fd });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data && data.detail;
+    throw new Error(typeof detail === "string" ? detail : `POST ${path} failed (${res.status})`);
+  }
+  return data;
+}
+
 async function apiPatch(path, body) {
   const res = await fetch(path, {
     method: "PATCH",
@@ -263,25 +288,37 @@ function stepAlbumId(ids, currentId, delta) {
   return ids[j];
 }
 
+/** Pixel media: step through one slot per Gallery card (root uploads). */
+function mediaCandidateIds(imgs) {
+  if (!Array.isArray(imgs)) return [];
+  return imgs
+    .filter((it) => it && !it.parent_id)
+    .map((it) => it.id)
+    .sort();
+}
+
 function updateAlbumNavButtons(settings) {
   const prev = $("btnAlbumPrev");
   const next = $("btnAlbumNext");
   if (!prev && !next) return;
 
   const s = settings || state.lastSettings;
-  const living = s?.art?.pattern === "living_drawing";
+  const pat = s?.art?.pattern;
+  const eligible = pat === "living_drawing" || pat === "pixel_media";
   const w = s?.matrix?.width;
   const h = s?.matrix?.height;
   const imgs = state.imageLibraryList || [];
-  const ids = albumCandidateIds(imgs, w, h);
-  const disabled = !living || !ids.length;
+  const ids = pat === "pixel_media" ? mediaCandidateIds(imgs) : albumCandidateIds(imgs, w, h);
+  const disabled = !eligible || !ids.length;
   if (prev) prev.disabled = disabled;
   if (next) next.disabled = disabled;
 }
 
 async function navigateAlbum(delta) {
   const settings = state.lastSettings;
-  if (!settings || settings.art?.pattern !== "living_drawing") return;
+  if (!settings) return;
+  const pat = settings.art?.pattern;
+  if (pat !== "living_drawing" && pat !== "pixel_media") return;
   const w = settings.matrix?.width;
   const h = settings.matrix?.height;
   if (!w || !h) return;
@@ -294,13 +331,13 @@ async function navigateAlbum(delta) {
   }
 
   const imgs = state.imageLibraryList || [];
-  const ids = albumCandidateIds(imgs, w, h);
+  const ids = pat === "pixel_media" ? mediaCandidateIds(imgs) : albumCandidateIds(imgs, w, h);
   if (!ids.length) return;
 
   const nextId = stepAlbumId(ids, settings.art?.drawing_id, delta);
   if (!nextId) return;
 
-  stageOrSendSettingsPatch({ art: { pattern: "living_drawing", drawing_id: nextId } }, { immediate: true });
+  stageOrSendSettingsPatch({ art: { pattern: pat, drawing_id: nextId } }, { immediate: true });
 
   const sel = $("selDrawing");
   if (sel && ids.includes(nextId)) sel.value = nextId;
@@ -311,14 +348,14 @@ async function navigateAlbum(delta) {
 function syncPhotoLineDrawingUi(settings) {
   const hint = $("photoPatternHint");
   const pattern = settings?.art?.pattern ?? ($("selPattern")?.value || "");
-  const isPhoto = pattern === "living_drawing";
+  const isPhoto = pattern === "living_drawing" || pattern === "pixel_media" || pattern === "camera_mirror";
   if (hint) {
     if (isPhoto) {
       hint.textContent = "";
       hint.classList.remove("isVisible");
     } else {
       hint.textContent =
-        "Choose Living drawing in Pattern to animate uploads on the matrix (brightness above applies there too).";
+        "Choose Living drawing, Pixel media, or Camera mirror in Pattern to animate uploads on the matrix.";
       hint.classList.add("isVisible");
     }
   }
@@ -331,6 +368,12 @@ function syncPhotoLineDrawingUi(settings) {
 
 function applySettingsToUI(settings) {
   if (!settings) return;
+
+  // Settings page has a local draft that shouldn't be overwritten by websocket updates.
+  // Always overlay the draft onto whatever payload we received (full settings or partial status).
+  if (isSettingsPage() && state.draftPatch) {
+    settings = deepMerge(settings, state.draftPatch);
+  }
 
   // Some messages (e.g. "status") can be partial. Only proceed when we have
   // the core sub-objects required to render the UI controls.
@@ -366,12 +409,18 @@ function applySettingsToUI(settings) {
     const patInfo = Array.isArray(state.patterns) ? state.patterns.find((p) => p && p.name === pat) : null;
     const patLabel = patInfo?.display_name || pat;
     let extra = "";
-    if (pat === "living_drawing") {
+    if (pat === "living_drawing" || pat === "pixel_media") {
       const opt = $("selDrawing")?.selectedOptions && $("selDrawing").selectedOptions[0];
       const lab = (opt && opt.dataset && opt.dataset.displayLabel) || settings?.art?.drawing_id || "";
       if (lab) extra = ` · ${lab}`;
     }
     nowPlaying.textContent = `${patLabel}${extra}`;
+  }
+
+  // Photo mode selector (main page): keep it in sync with pattern.
+  if ($("selPhotoMode") && !state.uiLocks.has("selPhotoMode") && !recentlyEdited("selPhotoMode")) {
+    const p = String(settings?.art?.pattern || "living_drawing");
+    if (p === "living_drawing" || p === "pixel_media" || p === "camera_mirror") $("selPhotoMode").value = p;
   }
 
   const oa = settings.integrations?.openai;
@@ -425,6 +474,9 @@ function applySettingsToUI(settings) {
   if ($("numHold") && !state.uiLocks.has("numHold") && !recentlyEdited("numHold")) $("numHold").value = String(settings.art.hold_seconds ?? 4);
   if ($("numErasePps") && !state.uiLocks.has("numErasePps") && !recentlyEdited("numErasePps")) $("numErasePps").value = String(settings.art.erase_pps ?? 800);
   if ($("selToolpathSource") && !state.uiLocks.has("selToolpathSource") && !recentlyEdited("selToolpathSource")) $("selToolpathSource").value = settings.art.toolpath_source || "auto";
+  if ($("selMediaFilter") && !state.uiLocks.has("selMediaFilter") && !recentlyEdited("selMediaFilter")) $("selMediaFilter").value = settings.art.media_filter || "pixel";
+  if ($("numMediaFpsCap") && !state.uiLocks.has("numMediaFpsCap") && !recentlyEdited("numMediaFpsCap")) $("numMediaFpsCap").value = String(settings.art.media_fps_cap ?? 15);
+  if ($("numCameraFpsCap") && !state.uiLocks.has("numCameraFpsCap") && !recentlyEdited("numCameraFpsCap")) $("numCameraFpsCap").value = String(settings.art.camera_fps_cap ?? 10);
 
   if ($("selOutputMode") && !state.uiLocks.has("selOutputMode") && !recentlyEdited("selOutputMode")) {
     $("selOutputMode").value = settings.output.mode || "simulator";
@@ -815,12 +867,16 @@ function wireUi() {
   lockWhileInteracting("numHold", $("numHold"));
   lockWhileInteracting("numErasePps", $("numErasePps"));
   lockWhileInteracting("selToolpathSource", $("selToolpathSource"));
+  lockWhileInteracting("selMediaFilter", $("selMediaFilter"));
+  lockWhileInteracting("numMediaFpsCap", $("numMediaFpsCap"));
+  lockWhileInteracting("numCameraFpsCap", $("numCameraFpsCap"));
   lockWhileInteracting("selOutputMode", $("selOutputMode"));
   lockWhileInteracting("selPhotoPlayback", $("selPhotoPlayback"));
   lockWhileInteracting("numPiGpioPin", $("numPiGpioPin"));
   lockWhileInteracting("selPiStripType", $("selPiStripType"));
   lockWhileInteracting("rngPiStripBrightness", $("rngPiStripBrightness"));
   lockWhileInteracting("rngPiRgbGain", $("rngPiRgbGain"));
+  lockWhileInteracting("selPhotoMode", $("selPhotoMode"));
 
   $("btnStart")?.addEventListener("click", async () => {
     animateClick($("btnStart"));
@@ -1050,26 +1106,151 @@ function wireUi() {
     void navigateAlbum(1);
   });
 
-  const btnUse = $("btnUseLivingDrawing");
-  if (btnUse) {
-    btnUse.addEventListener("click", async () => {
-      const drawingId = $("selDrawing")?.value || null;
-      const artPatch = { pattern: "living_drawing", drawing_id: drawingId };
+  const updatePhotoModeUi = () => {
+    const mode = $("selPhotoMode")?.value || "living_drawing";
+    const btnCam = $("btnEnableCamera");
+    const btnApply = $("btnApplyPhotoMode");
+    const hint = $("txtAlbumHint");
+    if (btnCam) btnCam.hidden = mode !== "camera_mirror";
+    if (btnApply) btnApply.textContent = mode === "camera_mirror" ? "Apply (camera)" : "Apply";
+    if (hint) {
+      hint.innerHTML =
+        mode === "pixel_media"
+          ? "Previous / Next step through your uploads (one per Gallery card)."
+          : "Previous / Next step through photos that have a <strong>vectorized</strong> preset for the current matrix size (same order as Pi album).";
+    }
+    updateAlbumNavButtons(state.lastSettings);
+  };
 
-      // These controls live on the Settings page now; only include if present.
-      if ($("clrLine")) artPatch.line_color = $("clrLine").value || "#b8d7ff";
-      if ($("selToolpathSource")) artPatch.toolpath_source = $("selToolpathSource").value || "auto";
-      if ($("numDrawPps")) artPatch.draw_pps = Number($("numDrawPps").value || 250);
-      if ($("numHold")) artPatch.hold_seconds = Number($("numHold").value || 4);
-      if ($("numErasePps")) artPatch.erase_pps = Number($("numErasePps").value || 800);
+  $("selPhotoMode")?.addEventListener("change", () => {
+    updatePhotoModeUi();
+  });
 
-    stageOrSendSettingsPatch({ art: artPatch }, { immediate: true });
-    });
-  }
+  $("btnApplyPhotoMode")?.addEventListener("click", async () => {
+    const mode = $("selPhotoMode")?.value || "living_drawing";
+    const id = $("selDrawing")?.value || null;
+    stageOrSendSettingsPatch({ art: { pattern: mode, drawing_id: id } }, { immediate: true });
+    updatePhotoModeUi();
+  });
+
+  // Camera mirror: grab webcam frames and push to backend.
+  let camStream = null;
+  let camTimer = null;
+  let camInFlight = false;
+  let camLastSentAt = 0;
+  const setCamStatus = (s) => {
+    const el = $("txtCameraStatus");
+    if (el) el.textContent = s || "";
+  };
+
+  $("btnEnableCamera")?.addEventListener("click", async () => {
+    const btn = $("btnEnableCamera");
+    if (!btn) return;
+    try {
+      if (camStream) {
+        // turn off
+        camStream.getTracks().forEach((t) => t.stop());
+        camStream = null;
+        if (camTimer) window.clearTimeout(camTimer);
+        camTimer = null;
+        camInFlight = false;
+        btn.textContent = "Enable camera mirror";
+        setCamStatus("");
+        return;
+      }
+
+      btn.disabled = true;
+      setCamStatus("Requesting camera…");
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      btn.textContent = "Disable camera";
+      setCamStatus("Camera on. Streaming frames…");
+
+      // Use a hidden canvas to downscale and JPEG-encode.
+      const cv = document.createElement("canvas");
+      const ctx = cv.getContext("2d", { willReadFrequently: false });
+      const video = document.createElement("video");
+      video.srcObject = camStream;
+      video.muted = true;
+      await video.play();
+
+      const sendFrame = async () => {
+        try {
+          if (camInFlight) return;
+          camInFlight = true;
+
+          const s = state.lastSettings;
+          const w = s?.matrix?.width || 64;
+          const h = s?.matrix?.height || 64;
+          cv.width = w;
+          cv.height = h;
+          ctx.drawImage(video, 0, 0, w, h);
+          // Lower quality helps a lot on slower machines; matrix is tiny anyway.
+          const blob = await new Promise((resolve) => cv.toBlob((b) => resolve(b), "image/jpeg", 0.45));
+          if (!blob) return;
+          await apiUploadBlob("/api/camera/frame", blob, { filename: "frame.jpg", contentType: "image/jpeg" });
+          camLastSentAt = Date.now();
+        } catch (_) {
+          // keep quiet; UI shows if camera stops
+        } finally {
+          camInFlight = false;
+        }
+      };
+
+      // Switch simulator to camera pattern immediately.
+      stageOrSendSettingsPatch({ art: { pattern: "camera_mirror" } }, { immediate: true });
+
+      // Self-scheduling loop prevents `setInterval` pileups.
+      const loop = async () => {
+        if (!camStream) return;
+        try {
+          const s = state.lastSettings;
+          const cap = Number(s?.art?.camera_fps_cap || 10);
+          // Camera: keep modest; higher FPS just wastes CPU because we encode + upload each frame.
+          const fps = Math.max(1, Math.min(30, cap || 10));
+          const minDt = Math.round(1000 / fps);
+          const now = Date.now();
+          if (!camInFlight && now - camLastSentAt >= minDt) {
+            await sendFrame();
+          }
+        } finally {
+          // Sleep a fraction of the target dt so we don't busy-loop.
+          camTimer = window.setTimeout(loop, Math.max(20, Math.round(minDt / 2)));
+        }
+      };
+      camTimer = window.setTimeout(loop, 0);
+    } catch (e) {
+      console.error(e);
+      setCamStatus(String(e && e.message ? e.message : e));
+      if (camStream) {
+        camStream.getTracks().forEach((t) => t.stop());
+        camStream = null;
+      }
+    } finally {
+      const btn = $("btnEnableCamera");
+      if (btn) btn.disabled = false;
+    }
+  });
 
   $("selToolpathSource")?.addEventListener("change", (e) => {
     state.lastLocalEditAt.set("selToolpathSource", Date.now());
     stageOrSendSettingsPatch({ art: { toolpath_source: e.target.value } }, { immediate: true });
+  });
+
+  $("selMediaFilter")?.addEventListener("change", (e) => {
+    state.lastLocalEditAt.set("selMediaFilter", Date.now());
+    stageOrSendSettingsPatch({ art: { media_filter: e.target.value } }, { immediate: true });
+  });
+  $("numMediaFpsCap")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 1, 60);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numMediaFpsCap", Date.now());
+    stageOrSendSettingsPatch({ art: { media_fps_cap: v } }, { immediate: true });
+  });
+  $("numCameraFpsCap")?.addEventListener("change", (e) => {
+    const v = clampNumber(Number(e.target.value), 1, 30);
+    e.target.value = String(v);
+    state.lastLocalEditAt.set("numCameraFpsCap", Date.now());
+    stageOrSendSettingsPatch({ art: { camera_fps_cap: v } }, { immediate: true });
   });
 
   const gen = async (source) => {
@@ -1099,14 +1280,15 @@ function wireUi() {
     syncRenameInputFromSelection();
     const id = $("selDrawing")?.value || null;
     // If living drawing is active, switching library selection should switch the drawing immediately.
-    const isLiving = state.lastSettings?.art?.pattern === "living_drawing";
-    if (isLiving) {
+    const pat = state.lastSettings?.art?.pattern;
+    const isAuto = pat === "living_drawing" || pat === "pixel_media";
+    if (isAuto) {
       stageOrSendSettingsPatch({ art: { drawing_id: id } }, { immediate: true });
     }
 
     // Update sidebar label immediately (without waiting for a server roundtrip)
     const nowPlaying = $("txtNowPlaying");
-    if (nowPlaying && isLiving) {
+    if (nowPlaying && isAuto) {
       const opt = $("selDrawing")?.selectedOptions && $("selDrawing").selectedOptions[0];
       const lab = (opt && opt.dataset && opt.dataset.displayLabel) || id || "";
       if (lab) {
@@ -1316,6 +1498,21 @@ async function loadInitialData() {
   applySettingsToUI(settings);
 
   await refreshDrawingList();
+
+  // Ensure Photo panel reflects current mode on load.
+  try {
+    const mode = $("selPhotoMode")?.value;
+    if (mode) {
+      const btnCam = $("btnEnableCamera");
+      if (btnCam) btnCam.hidden = mode !== "camera_mirror";
+    }
+  } catch (_) {}
+
+  // Set hint + button visibility once.
+  try {
+    const ev = new Event("change");
+    $("selPhotoMode")?.dispatchEvent(ev);
+  } catch (_) {}
 }
 
 async function refreshDrawingList(selectedId) {

@@ -323,6 +323,15 @@ async function applyVariantAndGoHome(imageId, w, h) {
   window.location.href = "/";
 }
 
+async function applyPixelsAndGoHome(imageId, w, h) {
+  const preset = `${w}x${h}`;
+  await apiPost("/api/settings", {
+    matrix: { preset },
+    art: { pattern: "pixel_media", drawing_id: imageId },
+  });
+  window.location.href = "/";
+}
+
 async function main() {
   const status = $("galleryStatus");
   const grid = $("galleryGrid");
@@ -628,11 +637,20 @@ async function main() {
           const btnUse = document.createElement("button");
           btnUse.className = "btn primary";
           btnUse.type = "button";
-          btnUse.textContent = "Preview in Simulator";
+          btnUse.textContent = "Living drawing";
           btnUse.addEventListener("click", () => {
             void applyVariantAndGoHome(kid.id, 64, 96);
           });
           actions.appendChild(btnUse);
+
+          const btnPix = document.createElement("button");
+          btnPix.className = "btn";
+          btnPix.type = "button";
+          btnPix.textContent = "Pixel media";
+          btnPix.addEventListener("click", () => {
+            void applyPixelsAndGoHome(kid.id, 64, 96);
+          });
+          actions.appendChild(btnPix);
 
           const btnDelKid = document.createElement("button");
           btnDelKid.className = "btn danger";
@@ -899,8 +917,14 @@ async function main() {
       const btnPreview = document.createElement("button");
       btnPreview.className = "btn primary";
       btnPreview.type = "button";
-      btnPreview.textContent = "Preview in Simulator";
+      btnPreview.textContent = "Living drawing";
       actions.appendChild(btnPreview);
+
+      const btnPixels = document.createElement("button");
+      btnPixels.className = "btn";
+      btnPixels.type = "button";
+      btnPixels.textContent = "Pixel media";
+      actions.appendChild(btnPixels);
 
       const btnRegen = document.createElement("button");
       btnRegen.className = "btn";
@@ -928,6 +952,7 @@ async function main() {
         const metaV = (variants || []).find((vv) => `${vv.w}x${vv.h}` === v) || null;
         txt.textContent = metaV ? `${metaV.strokes || 1} stroke(s), ${metaV.points || 0} pts` : "—";
         btnPreview.onclick = () => { void applyVariantAndGoHome(vectorSource.id, w, h); };
+        btnPixels.onclick = () => { void applyPixelsAndGoHome(vectorSource.id, w, h); };
 
         btnRegen.onclick = async () => {
           btnRegen.disabled = true;

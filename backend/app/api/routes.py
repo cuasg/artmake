@@ -18,6 +18,7 @@ from app.engine.renderer import FrameRenderer
 from app.engine.line_art_vectorize import image_to_strokes_lineart
 from PIL import Image
 from app.image_library import ImageLibrary
+from app.camera_service import CameraService
 from app.perf_service import PerfService
 from app.settings_public import public_settings_dict
 from app.settings_service import SettingsService
@@ -56,6 +57,7 @@ def build_routes(
     perf_service: PerfService,
     image_library: ImageLibrary,
     renderer: FrameRenderer,
+    camera_service: CameraService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -419,6 +421,22 @@ def build_routes(
         if not e:
             return {"error": "not_found"}
         return FileResponse(str(e.path))
+
+    @router.post("/camera/frame")
+    async def camera_frame(file: UploadFile = File(...)) -> dict:
+        """
+        Browser pushes a live camera frame (JPEG/PNG/WebP). Stored in-memory for camera_mirror pattern.
+        """
+        if camera_service is None:
+            raise HTTPException(status_code=503, detail="Camera service not configured")
+        ct = (file.content_type or "").strip().lower()
+        if not ct.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Expected an image upload")
+        b = await file.read()
+        if not b:
+            raise HTTPException(status_code=400, detail="Empty frame")
+        camera_service.set_frame(b, content_type=ct)
+        return {"ok": True}
 
     @router.post("/images/{image_id}/refine-toolpath")
     async def images_refine_toolpath(image_id: str, body: RefineToolpathBody | None = None) -> dict:

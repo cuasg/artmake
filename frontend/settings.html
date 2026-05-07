@@ -184,6 +184,23 @@
                 <input id="clrLine" type="color" value="#b8d7ff" />
               </label>
               <label class="field">
+                <span class="fieldLabel">Media filter (Pixel media / Camera mirror)</span>
+                <select id="selMediaFilter">
+                  <option value="pixel">Pixel (nearest)</option>
+                  <option value="pixel_dither">Pixel + dither</option>
+                  <option value="mono">Mono</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Media FPS cap</span>
+                <input id="numMediaFpsCap" type="number" min="1" max="60" step="1" />
+              </label>
+              <label class="field">
+                <span class="fieldLabel">Camera FPS cap (Camera mirror)</span>
+                <input id="numCameraFpsCap" type="number" min="1" max="30" step="1" />
+              </label>
+              <label class="field">
                 <span class="fieldLabel">Draw speed (pps)</span>
                 <input id="numDrawPps" type="number" min="10" max="5000" step="10" />
               </label>

@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import build_routes
 from app.api.websocket import build_websocket
+from app.camera_service import CameraService
 from app.engine.renderer import FrameRenderer
 from app.image_library import ImageLibrary
 from app.perf_service import PerfService
@@ -27,11 +28,12 @@ def create_app() -> FastAPI:
     settings_service = SettingsService(settings_path=settings_path)
     perf_service = PerfService(perf_path=perf_path)
     image_library = ImageLibrary(root_dir=project_root)
-    renderer = FrameRenderer(image_library=image_library)
+    camera_service = CameraService()
+    renderer = FrameRenderer(image_library=image_library, camera_service=camera_service)
 
     app = FastAPI(title="AI Light Canvas", version="0.1.0")
 
-    app.include_router(build_routes(settings_service, perf_service, image_library, renderer))
+    app.include_router(build_routes(settings_service, perf_service, image_library, renderer, camera_service))
     app.include_router(build_websocket(settings_service, perf_service, renderer, image_library))
 
     # Serve the frontend at /

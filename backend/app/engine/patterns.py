@@ -144,5 +144,7 @@ PATTERN_INFOS = [
     PatternInfo("pulse", "Pulse", "Soft pulsing gradients with ambient haze."),
     PatternInfo("fractal_julia", "Fractal (Julia)", "Ambient Julia set fractal field."),
     PatternInfo("living_drawing", "Living Drawing", "Draw an uploaded image as a continuous line."),
+    PatternInfo("pixel_media", "Pixel media", "Render a photo/GIF as full-color pixels on the matrix."),
+    PatternInfo("camera_mirror", "Camera mirror", "Live camera pixel-mirror (full-color) on the matrix."),
 ]
 

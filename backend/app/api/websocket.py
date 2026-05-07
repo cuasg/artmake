@@ -42,9 +42,8 @@ def build_websocket(
                 learned_max = perf_service.get_learned_max_fps(
                     settings.matrix.width, settings.matrix.height, settings.art.pattern
                 )
-                if settings.stream.auto_learn and learned_max:
-                    # Apply learned cap at runtime (without persisting to settings.yaml).
-                    settings.stream.max_fps = int(learned_max)
+                # NOTE: Do not mutate persisted settings with learned caps.
+                # We keep `learned_max` as advisory and apply it only when pacing frames below.
 
                 # Send settings only when they change (keeps frames lighter + reduces CPU).
                 if settings.version != last_settings_version:
@@ -131,7 +130,10 @@ def build_websocket(
 
                 # Requested fps acts as minimum "feel" knob; max_fps caps upward.
                 requested_fps = float(max(1, settings.stream.fps))
-                max_fps = float(max(1, settings.stream.max_fps))
+                # If auto-learn is enabled and we have a learned cap for this profile, use it
+                # as an *effective* max cap without overwriting the user-configured setting.
+                effective_max = learned_max if (settings.stream.auto_learn and learned_max) else settings.stream.max_fps
+                max_fps = float(max(1, effective_max))
 
                 if settings.stream.auto_fps:
                     # Keep headroom so we don't jitter: target dt ~ 15% above EMA.

@@ -235,7 +235,7 @@ class ImageLibrary:
         img_id = self._hash_bytes(content)
         safe_name = os.path.basename(original_filename).replace("\\", "_").replace("/", "_")
         ext = Path(safe_name).suffix.lower()
-        if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
+        if ext not in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"]:
             # default to png; we keep the bytes as-is for now
             ext = ".img"
         filename = f"{img_id}{ext}"
