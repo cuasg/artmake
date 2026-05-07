@@ -1202,12 +1202,13 @@ function wireUi() {
       // Self-scheduling loop prevents `setInterval` pileups.
       const loop = async () => {
         if (!camStream) return;
+        let minDt = 100;
         try {
           const s = state.lastSettings;
           const cap = Number(s?.art?.camera_fps_cap || 10);
           // Camera: keep modest; higher FPS just wastes CPU because we encode + upload each frame.
           const fps = Math.max(1, Math.min(30, cap || 10));
-          const minDt = Math.round(1000 / fps);
+          minDt = Math.round(1000 / fps);
           const now = Date.now();
           if (!camInFlight && now - camLastSentAt >= minDt) {
             await sendFrame();

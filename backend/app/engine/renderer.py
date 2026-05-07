@@ -234,8 +234,7 @@ class FrameRenderer:
             else:
                 frame = im
 
-            rgb = frame.convert("RGB")
-            rgb = rgb.resize((w, h), resample=Image.Resampling.NEAREST)
+            rgb = _resize_cover(frame, w, h)
             return w, h, _apply_media_filter(rgb, settings)
         except Exception:
             return w, h, bytes(bytearray(w * h * 3))
@@ -265,7 +264,7 @@ class FrameRenderer:
             return w, h, self._cam_last_rgb
         try:
             im = Image.open(io.BytesIO(b))
-            rgb = im.convert("RGB").resize((w, h), resample=Image.Resampling.NEAREST)
+            rgb = _resize_cover(im, w, h)
             out = _apply_media_filter(rgb, settings)
             self._cam_last_ts = float(ts)
             self._cam_last_wh = (w, h)
@@ -703,4 +702,38 @@ def _apply_media_filter(img: Image.Image, settings: RuntimeSettings) -> bytes:
             i += 3
 
     return bytes(out)
+
+
+def _resize_cover(img: Image.Image, w: int, h: int) -> Image.Image:
+    """
+    Resize an image to exactly (w,h) by center-cropping to the target aspect ratio first.
+    This avoids letterboxing (“black bars”) on non-square matrices like 64×96.
+    """
+    w = int(w)
+    h = int(h)
+    if w <= 0 or h <= 0:
+        return img.convert("RGB")
+
+    im = img.convert("RGB")
+    iw, ih = im.size
+    if iw <= 0 or ih <= 0:
+        return im.resize((w, h), resample=Image.Resampling.NEAREST)
+
+    target_ar = float(w) / float(h)
+    src_ar = float(iw) / float(ih)
+
+    if abs(src_ar - target_ar) < 1e-6:
+        cropped = im
+    elif src_ar > target_ar:
+        # source too wide: crop width
+        new_w = int(round(ih * target_ar))
+        x0 = max(0, (iw - new_w) // 2)
+        cropped = im.crop((x0, 0, min(iw, x0 + new_w), ih))
+    else:
+        # source too tall: crop height
+        new_h = int(round(iw / target_ar))
+        y0 = max(0, (ih - new_h) // 2)
+        cropped = im.crop((0, y0, iw, min(ih, y0 + new_h)))
+
+    return cropped.resize((w, h), resample=Image.Resampling.NEAREST)
 
