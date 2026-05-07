@@ -11,7 +11,7 @@
       <header class="topBar">
         <div class="brand">
           <div class="brandTitle">Settings</div>
-          <div class="brandSub">FPS, caps, colors, speeds, matrix, OpenAI</div>
+          <div class="brandSub">Tune playback, visuals, and hardware output</div>
         </div>
         <div class="topBarActions">
           <div id="settingsCommitBar" class="commitBar" hidden>
@@ -26,237 +26,299 @@
 
       <main class="main main--fullwidth">
         <section class="pageSheet">
-          <div class="settingsGroup">
-            <div class="groupTitle">Art</div>
-            <div class="fieldGrid2" style="margin-top: 10px">
-              <label class="field">
-                <span class="fieldLabel">Brightness</span>
-                <div class="rangeRow">
-                  <input id="rngBrightness" type="range" min="0" max="1" step="0.01" />
-                  <span id="txtBrightness" class="mono">—</span>
-                </div>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Ambient speed</span>
-                <div class="rangeRow">
-                  <input id="rngSpeed" type="range" min="0" max="5" step="0.01" />
-                  <span id="txtSpeed" class="mono">—</span>
-                </div>
-              </label>
-            </div>
-          </div>
+          <details class="settingsFold" open>
+            <summary><span class="foldSummaryLabel">Basics</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">These affect every mode: ambient patterns, living drawing, pixel media, and camera mirror.</div>
 
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Streaming &amp; performance</div>
-            <div class="fieldGrid2" style="margin-top: 10px">
-              <label class="field">
-                <span class="fieldLabel">Target FPS</span>
-                <input id="numFps" type="number" min="1" max="120" step="1" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Auto-tune FPS</span>
-                <select id="selAutoFps">
-                  <option value="true">On (recommended)</option>
-                  <option value="false">Off</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Max FPS cap</span>
-                <input id="numMaxFps" type="number" min="1" max="120" step="1" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Auto-learn cap</span>
-                <select id="selAutoLearn">
-                  <option value="true">On</option>
-                  <option value="false">Off</option>
-                </select>
-              </label>
-            </div>
-            <div class="btnRow" style="margin-top: 12px">
-              <button id="btnResetLearned" class="btn" type="button">Reset learned FPS cap</button>
-            </div>
-          </div>
-
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Matrix</div>
-            <label class="field" style="margin-top: 10px">
-              <span class="fieldLabel">Matrix preset</span>
-              <select id="selMatrixPreset">
-                <option value="32x32">32 × 32</option>
-                <option value="64x64">64 × 64</option>
-                <option value="64x96">64 × 96</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Raspberry Pi &amp; playlist</div>
-            <div class="muted" style="margin-top: 6px">
-              Use <strong>Simulator</strong> while testing on a PC. On the Pi, pick <strong>Raspberry Pi</strong> to mirror the
-              same frames to a WS281x data line. “Album” cycles all images that have a vectorized toolpath for the current
-              matrix size, after each full draw → hold → erase.
-            </div>
-            <div class="fieldGrid2" style="margin-top: 10px">
-              <label class="field">
-                <span class="fieldLabel">Frame output</span>
-                <select id="selOutputMode">
-                  <option value="simulator">Simulator (browser only)</option>
-                  <option value="raspberry_pi">Raspberry Pi (browser + GPIO strip)</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Living drawing playlist</span>
-                <select id="selPhotoPlayback">
-                  <option value="selected">Selected image only</option>
-                  <option value="album">Album — cycle all with vectorized paths</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">GPIO data (BCM)</span>
-                <input id="numPiGpioPin" type="number" min="2" max="40" step="1" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Strip type (rpi_ws281x)</span>
-                <select id="selPiStripType">
-                  <option value="WS2812_STRIP">WS2812</option>
-                  <option value="WS2811_STRIP_GRB">WS2811 GRB</option>
-                  <option value="WS2811_STRIP_RGB">WS2811 RGB</option>
-                  <option value="SK6812_STRIP">SK6812</option>
-                </select>
-              </label>
-              <label class="field" style="grid-column: 1 / -1">
-                <span class="fieldLabel">Strip brightness (hardware)</span>
-                <div class="rangeRow">
-                  <input id="rngPiStripBrightness" type="range" min="0" max="1" step="0.01" />
-                  <span id="txtPiStripBrightness" class="mono">—</span>
+              <div class="settingsGroup" style="margin: 0 0 12px 0; background: rgba(120,166,255,0.08); border-color: rgba(120,166,255,0.18);">
+                <div class="groupTitle" style="margin-bottom:6px">Recommended defaults</div>
+                <div class="muted">
+                  If you're not sure what to pick:
+                  <strong>Auto-tune FPS: On</strong>, <strong>Target FPS: 30</strong>, <strong>Max FPS cap: 60</strong>,
+                  <strong>Media FPS cap: 15</strong>, <strong>Camera FPS cap: 8–10</strong>.
                 </div>
-              </label>
-              <label class="field" style="grid-column: 1 / -1">
-                <span class="fieldLabel">RGB gain</span>
-                <div class="rangeRow">
-                  <input id="rngPiRgbGain" type="range" min="0" max="2" step="0.05" />
-                  <span id="txtPiRgbGain" class="mono">—</span>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Simulator look</div>
-            <div class="fieldGrid2" style="margin-top: 10px">
-              <label class="field">
-                <span class="fieldLabel">LED shape</span>
-                <select id="selLedShape">
-                  <option value="circle">Circle</option>
-                  <option value="square">Square</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">LED spacing</span>
-                <div class="rangeRow">
-                  <input id="rngLedSpacing" type="range" min="0" max="8" step="1" />
-                  <span id="txtLedSpacing" class="mono">—</span>
-                </div>
-              </label>
-              <label class="field" style="grid-column: 1 / -1">
-                <span class="fieldLabel">Glow</span>
-                <div class="rangeRow">
-                  <input id="rngGlow" type="range" min="0" max="1" step="0.01" />
-                  <span id="txtGlow" class="mono">—</span>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Photo playback</div>
-            <div class="fieldGrid2" style="margin-top: 10px">
-              <label class="field">
-                <span class="fieldLabel">Toolpath source</span>
-                <select id="selToolpathSource">
-                  <option value="auto">Auto (prefer AI, then vectorized)</option>
-                  <option value="ai">AI optimized</option>
-                  <option value="vectorized">Vectorized (B/W line art)</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Line color</span>
-                <input id="clrLine" type="color" value="#b8d7ff" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Media filter (Pixel media / Camera mirror)</span>
-                <select id="selMediaFilter">
-                  <option value="pixel">Pixel (nearest)</option>
-                  <option value="pixel_dither">Pixel + dither</option>
-                  <option value="mono">Mono</option>
-                  <option value="none">None</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Media FPS cap</span>
-                <input id="numMediaFpsCap" type="number" min="1" max="60" step="1" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Camera FPS cap (Camera mirror)</span>
-                <input id="numCameraFpsCap" type="number" min="1" max="30" step="1" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Draw speed (pps)</span>
-                <input id="numDrawPps" type="number" min="10" max="5000" step="10" />
-              </label>
-              <label class="field">
-                <span class="fieldLabel">Hold (sec)</span>
-                <input id="numHold" type="number" min="0" max="60" step="0.5" />
-              </label>
-              <label class="field" style="grid-column: 1 / -1">
-                <span class="fieldLabel">Erase speed (pps)</span>
-                <input id="numErasePps" type="number" min="10" max="20000" step="50" />
-              </label>
-            </div>
-            <div class="btnRow" style="margin-top: 12px">
-              <button id="btnGenerateVectorized" class="btn" type="button">Generate vectorized (selected image)</button>
-            </div>
-          </div>
-
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">ChatGPT / OpenAI</div>
-            <form id="formOpenAiCred" autocomplete="off" onsubmit="return false;" style="margin-top: 10px">
-              <input
-                type="text"
-                name="username"
-                autocomplete="username"
-                value="local"
-                tabindex="-1"
-                aria-hidden="true"
-                style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden"
-              />
-              <label class="field">
-                <span class="fieldLabel">API key</span>
-                <input id="inpOpenAiApiKey" name="openai_api_key" type="password" autocomplete="new-password" placeholder="Paste key, then Save" />
-              </label>
-              <div class="btnRow" style="margin-top: 8px">
-                <button id="btnSaveOpenAiKey" class="btn" type="button">Save key</button>
-                <button id="btnClearOpenAiKey" class="btn" type="button">Clear key</button>
-                <span id="badgeOpenAiKey" class="badge" aria-live="polite">Key: …</span>
               </div>
-              <div id="txtOpenAiKeyHint" class="muted" style="margin-top: 8px"></div>
-              <label class="field">
-                <span class="fieldLabel">Model</span>
-                <input id="txtOpenAiModel" name="openai_model" type="text" autocomplete="off" placeholder="e.g. gpt-5-mini" />
-              </label>
-            </form>
-          </div>
 
-          <div class="settingsGroup" style="margin-top: 12px">
-            <div class="groupTitle">Optimize a photo</div>
-            <div class="muted" style="margin-top: 6px">
-              Pick an image in the simulator’s library, then come back here to generate/refine variants for the current matrix preset.
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Brightness</span>
+                  <div class="rangeRow">
+                    <input id="rngBrightness" type="range" min="0" max="1" step="0.01" />
+                    <span id="txtBrightness" class="mono">—</span>
+                  </div>
+                  <div class="muted">Global intensity for the matrix (and LED strip output on Pi).</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Ambient speed</span>
+                  <div class="rangeRow">
+                    <input id="rngSpeed" type="range" min="0" max="5" step="0.01" />
+                    <span id="txtSpeed" class="mono">—</span>
+                  </div>
+                  <div class="muted">Only affects ambient patterns like Waves / Pulse / Fractal.</div>
+                </label>
+              </div>
+
+              <div class="foldDivider"></div>
+
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Matrix preset</span>
+                  <select id="selMatrixPreset">
+                    <option value="32x32">32 × 32</option>
+                    <option value="64x64">64 × 64</option>
+                    <option value="64x96">64 × 96</option>
+                  </select>
+                  <div class="muted">Changes how images/GIFs are scaled and how many LEDs are addressed.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Frame output</span>
+                  <select id="selOutputMode">
+                    <option value="simulator">Simulator (browser only)</option>
+                    <option value="raspberry_pi">Raspberry Pi (browser + GPIO strip)</option>
+                  </select>
+                  <div class="muted">On Pi, this mirrors frames to your WS281x data line.</div>
+                </label>
+              </div>
             </div>
-            <div class="btnRow" style="margin-top: 10px">
-              <button id="btnRefineToolpath" class="btn primary" type="button">Refine with ChatGPT (selected image)</button>
+          </details>
+
+          <details class="settingsFold">
+            <summary><span class="foldSummaryLabel">Playback performance (FPS)</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">
+                If you’re unsure: leave Auto-tune on. Lower FPS usually looks smoother on LED matrices than a jittery high FPS.
+              </div>
+
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Target FPS</span>
+                  <input id="numFps" type="number" min="1" max="120" step="1" />
+                  <div class="muted">Requested rate. Actual rate may be capped below.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Auto-tune FPS</span>
+                  <select id="selAutoFps">
+                    <option value="true">On (recommended)</option>
+                    <option value="false">Off</option>
+                  </select>
+                  <div class="muted">Adapts timing to avoid stutter when the machine can’t keep up.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Max FPS cap <span class="muted" style="font-size:11px">· Advanced</span></span>
+                  <input id="numMaxFps" type="number" min="1" max="120" step="1" />
+                  <div class="muted">Upper bound when Auto-tune is on.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Auto-learn cap <span class="muted" style="font-size:11px">· Advanced</span></span>
+                  <select id="selAutoLearn">
+                    <option value="true">On</option>
+                    <option value="false">Off</option>
+                  </select>
+                  <div class="muted">
+                    Learns a stable max cap per matrix size + mode over time.
+                    Turn off if you're actively tuning and want your cap to stay exactly what you set.
+                  </div>
+                </label>
+              </div>
+
+              <div class="btnRow" style="margin-top: 12px">
+                <button id="btnResetLearned" class="btn" type="button">Reset learned FPS cap</button>
+                <div class="muted btnRow-fill" style="font-size:11px">
+                  If playback feels “stuck” at a low FPS after experimenting, reset learned caps.
+                </div>
+              </div>
             </div>
-            <div id="txtRefineStatus" class="muted" style="margin-top: 8px"></div>
-          </div>
+          </details>
+
+          <details class="settingsFold">
+            <summary><span class="foldSummaryLabel">Living drawing (line art)</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">Controls for the animated line-art drawing mode.</div>
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Toolpath source</span>
+                  <select id="selToolpathSource">
+                    <option value="auto">Auto (prefer AI, then vectorized)</option>
+                    <option value="ai">AI optimized</option>
+                    <option value="vectorized">Vectorized (B/W line art)</option>
+                  </select>
+                  <div class="muted">Auto is usually best unless you want a specific look.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Line color</span>
+                  <input id="clrLine" type="color" value="#b8d7ff" />
+                  <div class="muted">Used when a photo doesn’t override its own line color in Gallery.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Draw speed (pps)</span>
+                  <input id="numDrawPps" type="number" min="10" max="5000" step="10" />
+                  <div class="muted">Points per second while drawing.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Hold (sec)</span>
+                  <input id="numHold" type="number" min="0" max="60" step="0.5" />
+                  <div class="muted">How long the completed drawing stays before erasing.</div>
+                </label>
+                <label class="field" style="grid-column: 1 / -1">
+                  <span class="fieldLabel">Erase speed (pps)</span>
+                  <input id="numErasePps" type="number" min="10" max="20000" step="50" />
+                  <div class="muted">Points per second while erasing.</div>
+                </label>
+              </div>
+              <div class="muted" style="margin-top: 10px">
+                Tip: “Generate / refine” tooling is being moved to Gallery where it belongs.
+              </div>
+            </div>
+          </details>
+
+          <details class="settingsFold" open>
+            <summary><span class="foldSummaryLabel">Pixel media &amp; camera mirror</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">
+                Pixel media renders photos/GIFs as full-color pixels. Camera mirror streams a live camera frame and pixelates it.
+              </div>
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Media filter</span>
+                  <select id="selMediaFilter">
+                    <option value="pixel">Pixel (nearest)</option>
+                    <option value="pixel_dither">Pixel + dither</option>
+                    <option value="mono">Mono</option>
+                    <option value="none">None</option>
+                  </select>
+                  <div class="muted">“Pixel” is fastest and looks most LED-like.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Media FPS cap (GIFs)</span>
+                  <input id="numMediaFpsCap" type="number" min="1" max="60" step="1" />
+                  <div class="muted">Higher = smoother but more CPU.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Camera FPS cap</span>
+                  <input id="numCameraFpsCap" type="number" min="1" max="30" step="1" />
+                  <div class="muted">Lower values reduce lag/cutouts. Try 6–10.</div>
+                </label>
+                <div class="field">
+                  <span class="fieldLabel">Crop behavior</span>
+                  <div class="muted">
+                    Pixel media + camera mirror use “cover crop” to fill the matrix (e.g. 64×96 has no side bars).
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="settingsFold">
+            <summary><span class="foldSummaryLabel">Simulator look</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">Only affects the browser preview (not the Pi LEDs).</div>
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">LED shape</span>
+                  <select id="selLedShape">
+                    <option value="circle">Circle</option>
+                    <option value="square">Square</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">LED spacing</span>
+                  <div class="rangeRow">
+                    <input id="rngLedSpacing" type="range" min="0" max="8" step="1" />
+                    <span id="txtLedSpacing" class="mono">—</span>
+                  </div>
+                </label>
+                <label class="field" style="grid-column: 1 / -1">
+                  <span class="fieldLabel">Glow</span>
+                  <div class="rangeRow">
+                    <input id="rngGlow" type="range" min="0" max="1" step="0.01" />
+                    <span id="txtGlow" class="mono">—</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <details class="settingsFold">
+            <summary><span class="foldSummaryLabel">Raspberry Pi / WS281x output</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">
+                Only needed on the Pi. Desktop users can ignore this section.
+              </div>
+              <div class="fieldGrid2">
+                <label class="field">
+                  <span class="fieldLabel">Living drawing playlist</span>
+                  <select id="selPhotoPlayback">
+                    <option value="selected">Selected image only</option>
+                    <option value="album">Album — cycle all with vectorized paths</option>
+                  </select>
+                  <div class="muted">Album advances after a full draw → hold → erase cycle.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">GPIO data (BCM)</span>
+                  <input id="numPiGpioPin" type="number" min="2" max="40" step="1" />
+                  <div class="muted">Default 18. Verify for your hat/wiring.</div>
+                </label>
+                <label class="field">
+                  <span class="fieldLabel">Strip type (rpi_ws281x)</span>
+                  <select id="selPiStripType">
+                    <option value="WS2812_STRIP">WS2812</option>
+                    <option value="WS2811_STRIP_GRB">WS2811 GRB</option>
+                    <option value="WS2811_STRIP_RGB">WS2811 RGB</option>
+                    <option value="SK6812_STRIP">SK6812</option>
+                  </select>
+                </label>
+                <label class="field" style="grid-column: 1 / -1">
+                  <span class="fieldLabel">Strip brightness (hardware)</span>
+                  <div class="rangeRow">
+                    <input id="rngPiStripBrightness" type="range" min="0" max="1" step="0.01" />
+                    <span id="txtPiStripBrightness" class="mono">—</span>
+                  </div>
+                </label>
+                <label class="field" style="grid-column: 1 / -1">
+                  <span class="fieldLabel">RGB gain</span>
+                  <div class="rangeRow">
+                    <input id="rngPiRgbGain" type="range" min="0" max="2" step="0.05" />
+                    <span id="txtPiRgbGain" class="mono">—</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <details class="settingsFold">
+            <summary><span class="foldSummaryLabel">Integrations (ChatGPT / OpenAI)</span></summary>
+            <div class="foldInner">
+              <div class="foldLead">Used for AI toolpaths and AI line-art image generation.</div>
+              <form id="formOpenAiCred" autocomplete="off" onsubmit="return false;">
+                <input
+                  type="text"
+                  name="username"
+                  autocomplete="username"
+                  value="local"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden"
+                />
+                <label class="field">
+                  <span class="fieldLabel">API key</span>
+                  <input id="inpOpenAiApiKey" name="openai_api_key" type="password" autocomplete="new-password" placeholder="Paste key, then Save" />
+                  <div class="muted">Stored locally in `config/settings.yaml`.</div>
+                </label>
+                <div class="btnRow" style="margin-top: 8px">
+                  <button id="btnSaveOpenAiKey" class="btn" type="button">Save key</button>
+                  <button id="btnClearOpenAiKey" class="btn" type="button">Clear key</button>
+                  <span id="badgeOpenAiKey" class="badge" aria-live="polite">Key: …</span>
+                </div>
+                <div id="txtOpenAiKeyHint" class="muted" style="margin-top: 8px"></div>
+                <label class="field">
+                  <span class="fieldLabel">Model (optional)</span>
+                  <input id="txtOpenAiModel" name="openai_model" type="text" autocomplete="off" placeholder="e.g. gpt-5-mini" />
+                  <div class="muted">Leave blank to use the server default.</div>
+                </label>
+              </form>
+            </div>
+          </details>
         </section>
       </main>
     </div>
